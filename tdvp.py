@@ -1,7 +1,10 @@
 #%%
+from time import process_time, time
+
 import numpy as np
 from numpy import pi
 from numpy.typing import NDArray, ArrayLike, DTypeLike
+
 
 from itertools import combinations, combinations_with_replacement
 from typing import Callable, Iterable
@@ -80,7 +83,7 @@ class tdvp_result():
 
 
 
-class tdvp_optimizer():
+class qaoa_tdvp():
     def __init__(self, psi:Callable[[tuple[float]],Qobj], H:Qobj, qubo:NDArray, gram_mode:str='double') -> None:
         self._psi = psi 
         self._H = H
@@ -121,7 +124,7 @@ class tdvp_optimizer():
     def H(self, value):
         self._H = value
 
-    def flow(self,pars, stepsize) -> tuple:
+    def flow(self,delta, stepsize) -> tuple:
         """flow according to tdvp from pars for stepsize duration.
 
         Args:
@@ -131,7 +134,23 @@ class tdvp_optimizer():
         Returns:
             _type_: _description_
         """
-        pass
+        def finitediff(func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-10) -> Callable[[Iterable[float]], Qobj]:
+            def dfunc(delta):
+                difference = list()
+                for i in range(2):
+                    p_delta = list(delta)
+                    p_delta[i] += epsilon
+                    difference.append((func(p_delta)-func(delta))/epsilon)
+                return difference
+            return dfunc
+
+        def qaoa_grad(psi: Callable[[tuple[float]], Qobj], delta: Iterable[float], H: Qobj) -> np.matrix:
+            dpsi = finitediff(psi)
+            grad = np.matrix([
+                (dpsi(delta)[k].dag()*H*psi(delta))[0,0]
+                for k in range(2)
+                ]).T
+            return grad
 
     def optimize(self,tol, stepsize) -> tdvp_result:
         """Run the optimization algorithm using the tdvp flow.
@@ -184,17 +203,16 @@ class tdvp_optimizer():
 
             qc = QubitCircuit(self.n)
             if tilde:
-                for _ in range(p):
+                for layer in range(p):
                     qc.add_circuit(qcH(delta[i+p]))
-                    if _==i:
+                    if layer==i:
                         for oper in opers: qc.add_gate(oper)
                     qc.add_circuit(qcB(delta[i]))
             else:
-                for _ in range(p):
-                    print(delta)
+                for layer in range(p):
                     qc.add_circuit(qcH(delta[i+p]))
                     qc.add_circuit(qcB(delta[i]))
-                    if _==i: 
+                    if layer==i: 
                         for oper in opers: qc.add_gate(oper)
             return qc
 
@@ -209,8 +227,8 @@ class tdvp_optimizer():
                     right (tuple): (H2:[Gate],j:int,tilde:bool)
                 """
                 right_state = U_i(delta,*right).run(tensor([minus for _ in range(self.n)]))
-                left_state = dag(U_i(delta,*left).run(tensor([minus for _ in range(self.n)])))
-                return left_state*right_state
+                left_state  = U_i(delta,*left ).run(tensor([minus for _ in range(self.n)]))
+                return (left_state.dag()*right_state)[0,0]
 
             
         if self.gram_mode == 'double':
@@ -221,25 +239,22 @@ class tdvp_optimizer():
                     left  (tuple): (H1:[Gate],i:int,tilde:bool)
                     right (tuple): (H2:[Gate],j:int,tilde:bool)
                 """
-                m_delta = (-t for t in delta)
+                m_delta = tuple(-t for t in delta)
                 qc = QubitCircuit(self.n)
                 qc.add_circuit(U_i(delta,*right))
-                leftqc = U_i(m_delta,*left)
-                leftqc.add_1q_gate("H")
-                qc.add_circuit(leftqc.reverse_circuit())
-                return qc.run(tensor([minus for _ in range(self.n)]))[0]
+                # leftqc = U_i(m_delta,*left)
+                # leftqc.add_1q_gate("SNOT") # add hadamards on every qubit to change basis (minus state now is )
+                qc.add_circuit(U_i(m_delta,*left).reverse_circuit()) # negative of the delta parameters gives in this case the adjoint gates
+                overlap = tensor([minus for _ in range(self.n)]).dag()*qc.run(tensor([minus for _ in range(self.n)]))
+                return overlap[0,0]
                 
                 
 
-        G = np.zeros((p,p))
+        G = np.zeros((p,p),dtype=np.complex128)
         for i,j in combinations_with_replacement(range(p),2):
-            print((i,j))
-
             if i <= p and j <= p:
                 G[i,j] = sum([
-                    A(
-                        ([Gate("X",[k])],i,False),([Gate("X",[l])],j,False)
-                        , delta)
+                    A(([Gate("X",[k])],i,False),([Gate("X",[l])],j,False), delta)
                     for k,l in combinations_with_replacement(range(self.n),2)
                 ])
 
@@ -297,10 +312,9 @@ class tdvp_optimizer():
 def psi(pars:tuple[float])->Qobj:
     return tensor([np.cos(pars[0]/2)*basis(2,0)+np.exp(1j*pars[1])*np.sin(pars[0]/2)*basis(2,1) for _ in range(2)])
             
-tdvp_ = tdvp_optimizer(psi,tensor(sigmaz(),sigmaz()),np.array([[1,2],[2,1]]))
-U_i = tdvp_.get_qaoa_gram((1,1,1,1))
-
-# %
-
+tdvp_ = tdvp_optimizer(psi,tensor(sigmaz(),sigmaz()),np.array([[1,2],[2,1]]),gram_mode='double')
+t_0 = time()
+tdvp_.get_qaoa_gram((1,1,1,1))
+print(time()-t_0)
 
 # %%
