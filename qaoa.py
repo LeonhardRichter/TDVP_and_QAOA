@@ -125,12 +125,6 @@ def qaoa_circuit(betas: list[float], gammas: list[float],
 
     return qc
 
-
-# %%
-qubo = np.random.default_rng(seed=50505050).random(size=(3,3))
-qubo = (qubo + qubo.T)*10
-qubo
-
 # %%
 def H_from_qubo(qubo: ArrayLike, constant: float = None) -> QobjEvo:
     n = qubo.shape[0]
@@ -154,8 +148,8 @@ def f(pars: tuple[float], hamiltonian, mixer_ground=None, **kwargs) -> float:
     result = qc.run(mixer_ground)
     return expect(hamiltonian, result)
 
-# %%
-f((1,1,1,1,1,1),hamiltonian=H, qubo=qubo, mixer_ground=tensor(minus,minus,minus))
+def qaoa(delta:tuple[float]) -> Qobj:
+    pass
 
 # %%
 class OPTIMIZER(metaclass=ABCMeta):
@@ -168,16 +162,6 @@ class OPTIMIZER(metaclass=ABCMeta):
     @abstractmethod
     def optimize(fun, pars_0, *args):
         pass
-
-
-# %%
-opt_result = minimize(lambda pars:f(pars,H,tensor(minus,minus,minus),qubo=qubo),x0=tuple((0 for _ in range(2*10))),method="COBYLA")
-
-# %%
-opt_result
-
-# %%
-(qaoa_circuit(opt_result.x[:int(len(opt_result.x)/2)],opt_result.x[int(len(opt_result.x)/2):],qubo=qubo).run(state=tensor(minus,minus,minus)) - H.groundstate()[1]).norm()
 
 # %%
 def qaoa_solver(qubo,p):
