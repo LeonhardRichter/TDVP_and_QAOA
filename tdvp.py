@@ -1,13 +1,12 @@
 #%%
 from time import process_time, time
 
+from itertools import combinations, combinations_with_replacement
+from typing import Callable, Iterable
+
 import numpy as np
 from numpy import pi
 from numpy.typing import NDArray, ArrayLike, DTypeLike
-
-
-from itertools import combinations, combinations_with_replacement
-from typing import Callable, Iterable
 
 import scipy as sp
 from scipy import linalg
