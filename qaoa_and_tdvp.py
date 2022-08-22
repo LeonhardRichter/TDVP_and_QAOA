@@ -50,6 +50,73 @@ def H_from_qubo(qubo: ArrayLike, constant: float = None) -> QobjEvo:
 class OptimizerResult(meta=ABCMeta):
     def __init__(self) -> None:
         pass
+    
+    @property
+    def optimal_parameters(self)->tuple[float]:
+        """The optimal_parameters property."""
+        return self._optimal_parameters
+
+    @optimal_parameters.setter
+    def optimal_parameters(self, value:tuple[float]):
+        self._optimal_parameters= value
+
+    @property
+    def optimal_state(self)->Qobj():
+        """The optimal_state property."""
+        return self._optimal_state
+    @optimal_state.setter
+    def optimal_state(self, value:Qobj()):
+        self._optimal_state = value
+
+    @property
+    def duration(self):
+        """The duration property."""
+        return self._duration
+    @duration.setter
+    def duration(self, value):
+        self._duration = value
+
+    @property
+    def num_steps(self):
+        """The num_steps property."""
+        return self._num_steps
+    @num_steps.setter
+    def num_steps(self, value):
+        self._num_steps = value
+    @property
+    def num_fun_calls(self):
+        """The num_fun_calls property."""
+        return self._num_fun_calls
+    @num_fun_calls.setter
+    def num_fun_calls(self, value):
+        self._num_fun_calls = value
+
+    @property
+    def optimal_fun_value(self):
+        """The optimal_fun_value property."""
+        return self._optimal_fun_value
+    @optimal_fun_value.setter
+    def optimal_fun_value(self, value):
+        self._optimal_fun_value = value
+
+    @property
+    def parameter_path(self):
+        """The parameter_path property."""
+        return self._parameter_path
+    @parameter_path.setter
+    def parameter_path(self, value):
+        self._parameter_path = value
+
+    @property
+    def sucess(self):
+        """The sucess property."""
+        return self._sucess
+    @sucess.setter
+    def sucess(self, value):
+        self._sucess = value
+
+    def __str__(self):
+
 
 class Optimizer(meta=ABCMeta):
     def __init__(self) -> None:
