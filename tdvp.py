@@ -228,9 +228,8 @@ class qaoa_tdvp():
                 right_state = U_i(delta,*right).run(tensor([minus for _ in range(self.n)]))
                 left_state  = U_i(delta,*left ).run(tensor([minus for _ in range(self.n)]))
                 return (left_state.dag()*right_state)[0,0]
-
-            
-        if self.gram_mode == 'double':
+    
+        elif self.gram_mode == 'double':
             def A(left:tuple, right:tuple, delta):
                 """compute one summand of G_ij
 
