@@ -311,7 +311,7 @@ class qaoa_tdvp():
 def psi(pars:tuple[float])->Qobj:
     return tensor([np.cos(pars[0]/2)*basis(2,0)+np.exp(1j*pars[1])*np.sin(pars[0]/2)*basis(2,1) for _ in range(2)])
             
-tdvp_ = tdvp_optimizer(psi,tensor(sigmaz(),sigmaz()),np.array([[1,2],[2,1]]),gram_mode='double')
+tdvp_ = qaoa_tdvp(psi,tensor(sigmaz(),sigmaz()),np.array([[1,2],[2,1]]),gram_mode='double')
 t_0 = time()
 tdvp_.get_qaoa_gram((1,1,1,1))
 print(time()-t_0)
