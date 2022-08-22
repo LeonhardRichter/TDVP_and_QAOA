@@ -1,6 +1,7 @@
 #%%
-from time import process_time, time
-from abc import ABCMeta, abstractmethod, abstractproperty
+from lib2to3.pgen2.token import OP
+from time import time as ttime
+from abc import ABC, abstractmethod, abstractproperty
 from itertools import combinations, combinations_with_replacement
 from typing import Callable, Iterable
 
@@ -47,7 +48,7 @@ def H_from_qubo(qubo: ArrayLike, constant: float = None) -> QobjEvo:
 
 #%%
 # Define qaoa class
-class OptimizerResult(meta=ABCMeta):
+class QAOAResult():
     def __init__(self) -> None:
         pass
     
@@ -69,109 +70,183 @@ class OptimizerResult(meta=ABCMeta):
         self._optimal_state = value
 
     @property
-    def duration(self):
+    def duration(self)->float:
         """The duration property."""
         return self._duration
     @duration.setter
-    def duration(self, value):
+    def duration(self, value:float):
         self._duration = value
 
     @property
-    def num_steps(self):
+    def num_steps(self)->int:
         """The num_steps property."""
         return self._num_steps
     @num_steps.setter
-    def num_steps(self, value):
+    def num_steps(self, value:int):
         self._num_steps = value
     @property
-    def num_fun_calls(self):
+    def num_fun_calls(self)->int:
         """The num_fun_calls property."""
         return self._num_fun_calls
     @num_fun_calls.setter
-    def num_fun_calls(self, value):
+    def num_fun_calls(self, value:int):
         self._num_fun_calls = value
 
     @property
-    def optimal_fun_value(self):
+    def optimal_fun_value(self)->float:
         """The optimal_fun_value property."""
         return self._optimal_fun_value
     @optimal_fun_value.setter
-    def optimal_fun_value(self, value):
+    def optimal_fun_value(self, value:float):
         self._optimal_fun_value = value
 
     @property
-    def parameter_path(self):
+    def parameter_path(self)->list[tuple[float]]:
         """The parameter_path property."""
         return self._parameter_path
     @parameter_path.setter
-    def parameter_path(self, value):
+    def parameter_path(self, value:list[tuple[float]]):
         self._parameter_path = value
 
     @property
-    def sucess(self):
+    def sucess(self)->bool:
         """The sucess property."""
         return self._sucess
     @sucess.setter
-    def sucess(self, value):
+    def sucess(self, value:bool):
         self._sucess = value
 
+    @property
+    def optimizer_name(self)->str:
+        """The optimizer_name property."""
+        return self._optimizer_name
+    @optimizer_name.setter
+    def optimizer_name(self, value:str):
+        self._optimizer_name = value
+
+
     def __str__(self):
+        return f"""
+        {self.optimizer_name} terminated with {'no' if not self.sucess else''} sucess.
+        optimal parameters:     {self.optimal_parameters}
+        optimal value:          {self.optimal_fun_value}
+        number of fun calls:    {self.num_fun_calls}
+        number of steps:        {self.num_steps}
+        """
 
 
-class Optimizer(meta=ABCMeta):
+class Optimizer(ABC):
     def __init__(self) -> None:
         pass
+
+    @abstractproperty
+    def name(self)->str:
+        return ''
+
     @abstractmethod
-    def optimize(self,fun:Callable[[tuple[float]],float])->OptimizerResult:
+    def optimize(self,fun:Callable[[tuple[float]],float],detla_0:tuple[float])->QAOAResult:
         pass
 
+#%%
+class ScipyOptimizter(Optimizer):
+    def __init__(self) -> None:
+        super().__init__()
+    @property
+    def name(self)->str:
+        return'ScipyOptimizer'
+    
+    def optimize(self,fun:Callable[[tuple[float]],float],delta_0:tuple[float])->QAOAResult:
+        opt_result = QAOAResult()
+        t_0 = ttime()
+        min_result = minimize(fun, x0=delta_0, method="COBYLA")
+        dt = ttime() - t_0 
+        opt_result.duration = dt
+        opt_result.sucess = min_result.sucess
+        opt_result.optimal_parameters = min_result.x
+        opt_result.optimal_fun_value = min_result.fun
+        opt_result.num_fun_calls = min_result.nfev
+        opt_result.num_steps = min_result.nit
+        opt_result.optimizer_name = self.name
+
+        return opt_result
+
+
+#%%
 
 class QAOA():
     def __init__(self,
-                hamiltonian: Qobj = None,
+                 hamiltonian: Qobj = None,
+                 hamiltonian_ground: Qobj = None,
                  qubo:ArrayLike=None,
                  mixer: Qobj = None,
+                 mixer_ground:Qobj=None,
                  p:int=1,
                  optimizer:Optimizer = None) -> None:
+
         self._H = hamiltonian
+        self.H_ground = hamiltonian_ground
         self.qubo = qubo
-        self.mixer = mixer
         self.p = p
+
         if self.qubo is not None:
             self._n=qubo.shape[0]
         if self.H is not None:
             self._n = len(self.H.dims[0])
+
         self._optimzer = optimizer
+
+        self.mixer = mixer
+        if mixer_ground is not None:
+            self.mixer_ground = mixer_ground
+        else:
+            self.mixer_ground = tensor([minus for _ in range(self.n)])
+    # hamiltonian_ground
+    @property
+    def H_ground(self)->Qobj:
+        """The H_ground property."""
+        return self._H_ground
+    @H_ground.setter
+    def H_ground(self, value:Qobj):
+        self._H_ground = value
+
+    # mixer ground
+    @property
+    def mixer_ground(self)->Qobj:
+        """The mxier_ground property."""
+        return self._mixer_ground
+    @mixer_ground.setter
+    def mixer_ground(self, value:Qobj):
+        self._mixer_ground = value
     # H
     @property
-    def H(self):
+    def H(self)->Qobj:
         """The H property."""
         if self._H==None:
             if self.qubo is not None:
                 self._H = H_from_qubo(self.qubo)
         return self._H
     @H.setter
-    def H(self, value):
+    def H(self, value:Qobj):
         self._H = value
     # n
     @property
-    def n(self):
+    def n(self)->int:
         """The n property."""
         if self._n==None:
             self._n==len(self.H.dims[0])
         return self._n
     @n.setter
-    def n(self, value):
+    def n(self, value:int):
         self._n = value
-    
+    # optimizer
     @property
-    def optimizer(self):
+    def optimizer(self)->Optimizer:
         """The optimizer property."""
         return self._optimizer
     @optimizer.setter
-    def optimizer(self, value):
+    def optimizer(self, value:Optimizer):
         self._optimizer = value
-
+    ##############################################################################################33
     def circuit(self, delta:tuple[float]) -> QubitCircuit:
         assert len(delta)==2*self.p
         p = self.p
@@ -241,21 +316,25 @@ class QAOA():
         return qc
 
     
-    def expectation(self, delta: tuple[float], mixer_ground=None) -> float:
+    # foo
+    @property
+    def foo(self):->The  property.
+        """The foo property."""
+        return self._foo
+    @foo.setter
+    def foo(self, value:The  property.):
+        self._foo = value
+
+    def expectation(self, delta: tuple[float]) -> float:
         assert len(delta)==2*self.p
         p = self.p
         qc = circuit(delta)
         n = self.n
         hamiltonian = self.H
-        if mixer_ground is None:
-            mixer_ground = tensor([minus for _ in range(n)])
-        result = qc.run(mixer_ground)
-        return expect(hamiltonian, result)
+        qaoa_state = qc.run(self.mixer_ground)
+        return expect(hamiltonian, qaoa_state)
 
-    def qaoa_solver(qubo,p)->OptimizerResult:
-        
-        # opt_result = minimize(
-        #     lambda pars:f(pars,H,ground,qubo=qubo),x0=tuple((0 for _ in range(2*p))),method="COBYLA"
-        #     )
-
-        return opt_result
+    def solve(self,delta_0:tuple[float])->QAOAResult:
+        result = self.optimizer.optimize(self.expectation, delta_0)
+        result.optimal_state = self.circuit(result.optimal_parameters).run(self.mixer_ground)
+        return result
