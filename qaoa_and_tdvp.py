@@ -3,6 +3,7 @@ from time import time as ttime
 from abc import ABC, abstractmethod
 from itertools import combinations, combinations_with_replacement, product, permutations
 from typing import Callable, Any, Iterable
+
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 
@@ -12,11 +13,14 @@ from scipy import integrate
 from scipy.optimize import minimize
 
 from qutip import *
-from qutip.qip.operations import *
+from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
+
 
 #%%
 # Define general expressions and objects
+
+
 def sz(n: int, i: int):
     return expand_operator(sigmaz(), n, i, [2 for _ in range(n)])
 
@@ -32,7 +36,7 @@ def rzz(arg_value):
 minus = (basis(2, 0) - basis(2, 1)).unit()
 
 
-def H_from_qubo(qubo: ArrayLike, constant: float = None) -> QobjEvo:
+def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
     n = qubo.shape[0]
     if constant == None:
         qconstant = Qobj(
@@ -532,7 +536,8 @@ class QAOA:
                     ]
                 )
 
-            if i <= p and j > p:
+            if i <= p < j:
+
                 G[i, j] = sum(
                     [
                         qubo[l][l]
@@ -557,7 +562,7 @@ class QAOA:
                     ]
                 )
 
-            if i > p and j <= p:
+            if j <= p < i:
                 G[i, j] = sum(
                     [
                         qubo[k][k]
@@ -612,8 +617,8 @@ class QAOA:
                     )
                     + sum(
                         [
-                            qubo[k, k]
-                            * 2
+                            2
+                            * qubo[k, k]
                             * qubo[l, m]
                             * A(
                                 ([Gate("Z", [k])], i % p, True),
@@ -842,11 +847,12 @@ class tdvp_optimizer(Optimizer):
 
 
 # %%
+p = 4
 qubo = np.array([[1, 3], [3, 4]])
-qaoa = QAOA(qubo=qubo, p=3)
+qaoa = QAOA(qubo=qubo, p=p)
 tdvp = tdvp_optimizer(
     state_param=qaoa.state, hamiltonian=qaoa.H, gram=qaoa.gram, grad=qaoa.grad
 )
-print(qaoa.gram((1, 4, 5, 1, 1, 1)))
-
+gram = np.round(qaoa.gram(tuple(1 for _ in range(2 * p))), 10)
+gram.H == gram
 # %%
