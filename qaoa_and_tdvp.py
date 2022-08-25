@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from itertools import combinations, combinations_with_replacement, product, permutations
 from typing import Callable, Any, Iterable
 
+from numba import njit
+
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 
@@ -13,9 +15,11 @@ from scipy import integrate
 from scipy.optimize import minimize
 
 from qutip import *
+from qutip.parallel import parallel_map
 from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
 
+import multiprocessing as mp
 
 #%%
 # Define general expressions and objects
@@ -247,6 +251,12 @@ class QAOA:
 
         self.mixer_ground = tensor([minus for _ in range(self.n)])
 
+        # set the H qubo-circuit depending on inputmode
+        if self.qubo is None:
+            self.qcH = self.qcHhamiltonian
+        else:
+            self.qcH = self.qcHqubo
+
     # hamiltonian_ground
     @property
     def H_ground(self) -> Qobj:
@@ -302,91 +312,58 @@ class QAOA:
     def optimizer(self, value: Optimizer):
         self._optimizer = value
 
-    ##############################################################################################33
+    ##############################################################################################
+
+    def qcHqubo(self, gamma: float) -> QubitCircuit:
+        qc = QubitCircuit(self.n)
+        qc.user_gates = {"RZZ", rzz}
+        for j in range(self.n):
+            qc.add_gate(
+                "RZ",
+                targets=j,
+                arg_value=2 * gamma * self.qubo[j][j],
+                arg_label=f"2*{round(gamma,2)}*{self.qubo[j][j]}",
+            )
+        for j, k in combinations(range(self.n), 2):
+            qc.add_gate(
+                "RZZ",
+                targets=[j, k],
+                arg_value=2 * gamma * self.qubo[j][k],
+                arg_label=f"2*{round(gamma,2)}*{self.qubo[j][k]}",
+            )
+        return qc
+
+    # define the qaoa gates as QubitCircuits
+    def qcHhamiltonian(self, gamma: float) -> QubitCircuit:
+        def H_exp(arg_value) -> Qobj:
+            return (-1j * arg_value * self.H).expm()
+
+        qc = QubitCircuit(self.n)
+        qc.user_gates = {"H_exp": H_exp}
+        qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma,2)}")
+        return qc
+
+    def qcB(self, beta: float) -> QubitCircuit:
+        qc = QubitCircuit(self.n)
+        qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta,2)}")
+        return qc
+
+    # define the whole qaoa circuit
     def circuit(self, delta: tuple[float]) -> QubitCircuit:
         assert len(delta) == 2 * self.p
         p = self.p
         n = self.n
         betas = delta[:p]
         gammas = delta[p : 2 * p]
-        hamiltonian = self.H
-        qubo = self.qubo
-        # # check input mode, prefere qubo mode
-        # if linears is not None and quadratics is not None:
-        #     linears = np.array(linears)
-        #     quadratics = np.array(quadratics)
-        #     qubo = quadratics.copy()
-        #     linears += quadratics.diagonal()
-        #     np.fill_diagonal(qubo,linears)
-        # enter if either qubo input or linears and quadratics were given
-        if qubo is not None:
-            qubo = np.array(qubo)
-            # define what to apply to the circuit in each H_p turn
-            def qcH(gamma: float) -> QubitCircuit:
-                qc = QubitCircuit(n)
-                qc.user_gates = {"RZZ", rzz}
-                for j in range(n):
-                    qc.add_gate(
-                        "RZ",
-                        targets=j,
-                        arg_value=2 * gamma * qubo[j][j],
-                        arg_label=f"2*{round(gamma,2)}*{qubo[j][j]}",
-                    )
-                for j, k in combinations(range(n), 2):
-                    qc.add_gate(
-                        "RZZ",
-                        targets=[j, k],
-                        arg_value=2 * gamma * qubo[j][k],
-                        arg_label=f"2*{round(gamma,2)}*{qubo[j][k]}",
-                    )
-                return qc
-
-        # if no qubo data is given but a Qobj hamiltonian, exponiate it
-        elif hamiltonian is not None:
-            assert hamiltonian.isherm, "hamiltonian must be hermetian"
-
-            def qcH(gamma: float) -> QubitCircuit:
-                def H_exp(arg_value):
-                    return (-1j * arg_value * hamiltonian).expm()
-
-                qc = QubitCircuit(n)
-                qc.user_gates = {"H_exp": H_exp}
-                qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma,2)}")
-                return qc
-
-        assert n > 0
-        assert qcH is not None
 
         # define mixer circuit
-
-        def qcB(beta: float) -> QubitCircuit:
-            qc = QubitCircuit(n)
-            qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta,2)}")
-            return qc
-
         qc = QubitCircuit(n)
 
         for i in range(p):
-            qc.add_circuit(qcH(gammas[i]))
-            qc.add_circuit(qcB(betas[i]))
+            qc.add_circuit(self.qcH(gammas[i]))
+            qc.add_circuit(self.qcB(betas[i]))
 
         return qc
-
-    def state(self, delta: tuple[float]) -> Qobj:
-        return self.circuit((delta)).run(self.mixer_ground)
-
-    def expectation(self, delta: tuple[float]) -> float:
-        assert len(delta) == 2 * self.p
-        return expect(self.H, self.state(delta))
-
-    def solve(self, delta_0: tuple[float], max_iter=1000) -> QAOAResult:
-        result = self.optimizer.optimize(
-            fun=self.expectation, delta_0=delta_0, max_iter=max_iter
-        )
-        result.optimal_state = self.circuit(result.optimal_parameters).run(
-            self.mixer_ground
-        )
-        return result
 
     def circuit_i(
         self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
@@ -408,60 +385,205 @@ class QAOA:
         n = self.n
         p = self.p
         assert len(delta) == 2 * p
-        if qubo is not None:
-            # define what to apply to the circuit in each H_p turn
-            def qcH(gamma: float) -> QubitCircuit:
-                qc = QubitCircuit(n)
-                qc.user_gates = {"RZZ", rzz}
-                for j in range(n):
-                    qc.add_gate(
-                        "RZ",
-                        targets=j,
-                        arg_value=2 * gamma * qubo[j][j],
-                        arg_label=f"2*{round(gamma,2)}*{qubo[j][j]}",
-                    )
-                for j, k in combinations(range(n), 2):
-                    qc.add_gate(
-                        "RZZ",
-                        targets=[j, k],
-                        arg_value=2 * gamma * qubo[j][k],
-                        arg_label=f"2*{round(gamma,2)}*{qubo[j][k]}",
-                    )
-                return qc
-
-        else:
-            assert H.isherm
-
-            def qcH(gamma: float) -> QubitCircuit:
-                def H_exp(arg_value) -> Qobj:
-                    return (-1j * arg_value * H).expm()
-
-                qc = QubitCircuit(n)
-                qc.user_gates = {"H_exp": H_exp}
-                qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma,2)}")
-                return qc
-
-        def qcB(beta: float) -> QubitCircuit:
-            qc = QubitCircuit(n)
-            qc.add_1q_gate("RX", arg_value=2 * beta)
-            return qc
 
         qc = QubitCircuit(n)
         if tilde:
             for layer in range(p):
-                qc.add_circuit(qcH(delta[i + p]))
+                qc.add_circuit(self.qcH(delta[i + p]))
                 if layer == i:
                     for oper in opers:
                         qc.add_gate(oper)
-                qc.add_circuit(qcB(delta[i]))
+                qc.add_circuit(self.qcB(delta[i]))
         else:
             for layer in range(p):
-                qc.add_circuit(qcH(delta[i + p]))
-                qc.add_circuit(qcB(delta[i]))
+                qc.add_circuit(self.qcH(delta[i + p]))
+                qc.add_circuit(self.qcB(delta[i]))
                 if layer == i:
                     for oper in opers:
                         qc.add_gate(oper)
         return qc
+
+    def state(self, delta: tuple[float]) -> Qobj:
+        return self.circuit((delta)).run(self.mixer_ground)
+
+    def expectation(self, delta: tuple[float]) -> float:
+        assert len(delta) == 2 * self.p
+        return expect(self.H, self.state(delta))
+
+    def solve(self, delta_0: tuple[float], max_iter=1000) -> QAOAResult:
+        result = self.optimizer.optimize(
+            fun=self.expectation, delta_0=delta_0, max_iter=max_iter
+        )
+        result.optimal_state = self.circuit(result.optimal_parameters).run(
+            self.mixer_ground
+        )
+        return result
+
+    def Adouble(self, left: tuple, right: tuple, delta) -> np.complex_:
+        """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
+        Each of those is a QAOA state with some operators inserted at a certain position
+
+        Args:
+            left  (tuple): (H1:[Gate],i:int,tilde:bool) H1 is the list of operators to insert, i is the qaoa layer to insert at, tilde determines whether to insert inbetween or after the two qaoa gates
+            right (tuple): (H2:[Gate],j:int,tilde:bool) see left
+        """
+        left_state = self.circuit_i(delta, *left).run(self.mixer_ground)
+        right_state = self.circuit_i(delta, *right).run(self.mixer_ground)
+        return (left_state.dag() * right_state)[0, 0]
+
+    def Asingle(self, left: tuple, right: tuple, delta) -> np.complex_:
+        """compute one summand of G_ij, i.e
+
+        Args:
+            left  (tuple): (H1:[Gate],i:int,tilde:bool)
+            right (tuple): (H2:[Gate],j:int,tilde:bool)
+        """
+        m_delta = tuple(-t for t in delta)
+        qc = QubitCircuit(self.n)
+        qc.add_circuit(self.circuit_i(delta, *right))
+        # leftqc = U_i(m_delta,*left)
+        # leftqc.add_1q_gate("SNOT") # add hadamards on every qubit to change basis (minus state now is )
+        qc.add_circuit(
+            self.circuit_i(m_delta, *left).reverse_circuit()
+        )  # negative of the delta parameters gives in this case the adjoint gates
+        return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
+
+    def Gij(
+        self, ij: tuple[int], delta: tuple[float], grammode: str = "double"
+    ) -> np.complex_:
+        i, j = ij
+        n = self.n
+        qubo = self.qubo
+        if grammode == "double":
+            A = self.Adouble
+        elif grammode == "single":
+            A = self.Asingle
+        if i <= p - 1 and j <= p - 1:
+            element = sum(
+                [
+                    A(
+                        ([Gate("X", [l])], i % p, False),  # left side
+                        ([Gate("X", [k])], j % p, False),  # right side
+                        delta,
+                    )
+                    for k, l in product(range(n), repeat=2)
+                ]
+            )
+
+        if i <= p - 1 < j:
+
+            element = sum(
+                [
+                    qubo[l][l]
+                    * A(
+                        ([Gate("X", [k])], i % p, False),
+                        (
+                            [Gate("Z", [l])],
+                            j % p,
+                            True,
+                        ),  # for the case that gamma was derivated: put a Z inbetween -> tilde=True
+                        delta,
+                    )
+                    for k, l in product(range(n), repeat=2)
+                ]
+            ) + sum(
+                [
+                    2
+                    * qubo[l][m]
+                    * A(
+                        ([Gate("X", [k])], i % p, False),
+                        ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
+                        delta,
+                    )  # 2* is due to qubo being symmetric and not upper triangular
+                    for k, l, m in product(range(n), repeat=3)
+                    if l < m
+                ]
+            )
+            # for saving computations, the gram matrix must be hermetian anyways
+        if j <= p - 1 < i:
+            element = sum(
+                [
+                    qubo[l][l]
+                    * A(
+                        ([Gate("Z", [l])], i % p, True),
+                        ([Gate("X", [k])], j % p, False),
+                        delta,
+                    )
+                    for k, l in product(range(n), repeat=2)
+                ]
+            ) + sum(
+                [
+                    2
+                    * qubo[k][l]
+                    * A(
+                        ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
+                        ([Gate("X", [m])], j % p, False),
+                        delta,
+                    )  # 2* is due to qubo being symmetric and not upper triangular AND that it does not matter where which Z lands
+                    for k, l, m in product(range(n), repeat=3)
+                    if k < l
+                ]
+            )
+
+        if i > p - 1 and j > p - 1:
+            element = (
+                sum(
+                    [
+                        qubo[k, k]
+                        * qubo[l, l]
+                        * A(
+                            ([Gate("Z", [k])], i % p, True),
+                            ([Gate("Z", [l])], j % p, True),
+                            delta,
+                        )
+                        for k, l in product(range(n), repeat=2)
+                    ]
+                )
+                + sum(
+                    [
+                        2
+                        * qubo[k, l]
+                        * qubo[m, m]
+                        * A(
+                            ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
+                            ([Gate("Z", [m])], j % p, True),
+                            delta,
+                        )
+                        for k, l, m in product(range(n), repeat=3)
+                        if k < l
+                    ]
+                )
+                + sum(
+                    [
+                        2
+                        * qubo[k, k]
+                        * qubo[l, m]
+                        * A(
+                            ([Gate("Z", [k])], i % p, True),
+                            ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
+                            delta,
+                        )
+                        for k, l, m in product(range(n), repeat=3)
+                        if l < m
+                    ]
+                )
+                + sum(
+                    [
+                        2
+                        * qubo[k, l]
+                        * 2
+                        * qubo[m, n]
+                        * A(
+                            ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
+                            ([Gate("Z", [m]), Gate("Z", [n])], j % p, True),
+                            delta,
+                        )
+                        for k, l, m, n in product(range(n), repeat=4)
+                        if k < l and m < n
+                    ]
+                )
+            )
+        return element
 
     def gram(self, delta: tuple[float], gram_mode: str = "double") -> NDArray:
         """Evaluate the gram matrix of an qubo-qaoa state on a quantum circuit.
@@ -476,177 +598,55 @@ class QAOA:
         Returns:
             NDArray: The gram matrix of the qaoa with given parameters.
         """
-        n = self.n
-        p = self.p
-        U_i = self.circuit_i
-        qubo = self.qubo
-        # two methods: one for computing both sides sepeartely (2 circuits) and for one longer circuit
-        if gram_mode == "double":
+        # #######legacy code########
+        # n = self.n
+        # p = self.p
+        # U_i = self.circuit_i
+        # qubo = self.qubo
+        # # two methods: one for computing both sides sepeartely (2 circuits) and for one longer circuit
+        # if gram_mode == "double":
 
-            def A(left: tuple, right: tuple, delta) -> np.complex_:
-                """compute one summand of G_ij
+        #     def A(left: tuple, right: tuple, delta) -> np.complex_:
+        #         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
+        #         Each of those is a QAOA state with some operators inserted at a certain position
 
-                Args:
-                    left  (tuple): (H1:[Gate],i:int,tilde:bool)
-                    right (tuple): (H2:[Gate],j:int,tilde:bool)
-                """
-                left_state = U_i(delta, *left).run(tensor([minus for _ in range(n)]))
-                right_state = U_i(delta, *right).run(tensor([minus for _ in range(n)]))
-                return (left_state.dag() * right_state)[0, 0]
+        #         Args:
+        #             left  (tuple): (H1:[Gate],i:int,tilde:bool) H1 is the list of operators to insert, i is the qaoa layer to insert at, tilde determines whether to insert inbetween or after the two qaoa gates
+        #             right (tuple): (H2:[Gate],j:int,tilde:bool) see left
+        #         """
+        #         left_state = U_i(delta, *left).run(self.mixer_ground)
+        #         right_state = U_i(delta, *right).run(self.mixer_ground)
+        #         return (left_state.dag() * right_state)[0, 0]
 
-        elif gram_mode == "single":
+        # elif gram_mode == "single":
 
-            def A(left: tuple, right: tuple, delta) -> np.complex_:
-                """compute one summand of G_ij
+        #     def A(left: tuple, right: tuple, delta) -> np.complex_:
+        #         """compute one summand of G_ij, i.e
 
-                Args:
-                    left  (tuple): (H1:[Gate],i:int,tilde:bool)
-                    right (tuple): (H2:[Gate],j:int,tilde:bool)
-                """
-                m_delta = tuple(-t for t in delta)
-                qc = QubitCircuit(n)
-                qc.add_circuit(U_i(delta, *right))
-                # leftqc = U_i(m_delta,*left)
-                # leftqc.add_1q_gate("SNOT") # add hadamards on every qubit to change basis (minus state now is )
-                qc.add_circuit(
-                    U_i(m_delta, *left).reverse_circuit()
-                )  # negative of the delta parameters gives in this case the adjoint gates
-                overlap = tensor([minus for _ in range(n)]).dag() * qc.run(
-                    tensor([minus for _ in range(n)])
-                )
-                return overlap[0, 0]
+        #         Args:
+        #             left  (tuple): (H1:[Gate],i:int,tilde:bool)
+        #             right (tuple): (H2:[Gate],j:int,tilde:bool)
+        #         """
+        #         m_delta = tuple(-t for t in delta)
+        #         qc = QubitCircuit(n)
+        #         qc.add_circuit(U_i(delta, *right))
+        #         # leftqc = U_i(m_delta,*left)
+        #         # leftqc.add_1q_gate("SNOT") # add hadamards on every qubit to change basis (minus state now is )
+        #         qc.add_circuit(
+        #             U_i(m_delta, *left).reverse_circuit()
+        #         )  # negative of the delta parameters gives in this case the adjoint gates
+        #         return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
 
-        # initialize the matrix
-        G = np.zeros((2 * p, 2 * p), dtype=np.complex128)
-
-        # several cases distinguished by hand. The indices represent which parameters was derivated.
-        # they should range from 0 (first beta parameter) to 2p (last gamma parameter)
-        # However the syntax for circuit_i and therefore A is that i points at the qaoa layer and therefore
-        # should only range from 0 to p, Hence the %p
-        for i, j in product(range(2 * p), repeat=2):
-            if i <= p and j <= p:
-                G[i, j] = sum(
-                    [
-                        A(
-                            ([Gate("X", [l])], j % p, False),
-                            ([Gate("X", [k])], i % p, False),
-                            delta,
-                        )
-                        for k, l in product(range(n), repeat=2)
-                    ]
-                )
-
-            if i <= p < j:
-
-                G[i, j] = sum(
-                    [
-                        qubo[l][l]
-                        * A(
-                            ([Gate("Z", [l])], j % p, True),
-                            ([Gate("X", [k])], i % p, False),
-                            delta,
-                        )
-                        for k, l in product(range(n), repeat=2)
-                    ]
-                ) + sum(
-                    [
-                        2
-                        * qubo[l][m]
-                        * A(
-                            ([Gate("X", [k])], i % p, False),
-                            ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
-                            delta,
-                        )  # 2* is due to qubo being symmetric and not upper triangular
-                        for k, l, m in product(range(n), repeat=3)
-                        if l < m
-                    ]
-                )
-
-            if j <= p < i:
-                G[i, j] = sum(
-                    [
-                        qubo[k][k]
-                        * A(
-                            ([Gate("Z", [k])], i % p, True),
-                            ([Gate("X", [l])], j % p, False),
-                            delta,
-                        )
-                        for k, l in product(range(n), repeat=2)
-                    ]
-                ) + sum(
-                    [
-                        2
-                        * qubo[k][l]
-                        * A(
-                            ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
-                            ([Gate("X", [m])], j % p, False),
-                            delta,
-                        )
-                        for k, l, m in product(range(n), repeat=3)
-                        if k < l
-                    ]
-                )
-
-            if i > p and j > p:
-                G[i, j] = (
-                    sum(
-                        [
-                            qubo[k, k]
-                            * qubo[l, l]
-                            * A(
-                                ([Gate("Z", [k])], i % p, True),
-                                ([Gate("Z", [l])], j % p, True),
-                                delta,
-                            )
-                            for k, l in product(range(n), repeat=2)
-                        ]
-                    )
-                    + sum(
-                        [
-                            2
-                            * qubo[k, l]
-                            * qubo[m, m]
-                            * A(
-                                ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
-                                ([Gate("Z", [m])], j % p, True),
-                                delta,
-                            )
-                            for k, l, m in product(range(n), repeat=3)
-                            if k < l
-                        ]
-                    )
-                    + sum(
-                        [
-                            2
-                            * qubo[k, k]
-                            * qubo[l, m]
-                            * A(
-                                ([Gate("Z", [k])], i % p, True),
-                                ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
-                                delta,
-                            )
-                            for k, l, m in product(range(n), repeat=3)
-                            if l < m
-                        ]
-                    )
-                    + sum(
-                        [
-                            2
-                            * qubo[k, l]
-                            * 2
-                            * qubo[m, n]
-                            * A(
-                                ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
-                                ([Gate("Z", [m]), Gate("Z", [n])], j % p, True),
-                                delta,
-                            )
-                            for k, l, m, n in product(range(n), repeat=4)
-                            if k < l and m < n
-                        ]
-                    )
-                )
-
-        return np.matrix(G)
+        # # initialize the matrix
+        # G = np.zeros((2 * p, 2 * p), dtype=np.complex128)
+        ###### current parallized version#######
+        return np.matrix(
+            parallel_map(
+                task=self.Gij,
+                values=list(product(range(2 * p), repeat=2)),
+                task_args=(delta, gram_mode),
+            )
+        ).reshape(2 * self.p, 2 * self.p)
 
     def grad(self, delta: tuple[float]) -> NDArray:
         states = []  # list for saving the states
@@ -846,13 +846,18 @@ class tdvp_optimizer(Optimizer):
         pass
 
 
-# %%
-p = 4
-qubo = np.array([[1, 3], [3, 4]])
+#%%
+p = 5
+qubo = np.array([[1, 3, 5], [3, 4, 6], [5, 6, 7]])
 qaoa = QAOA(qubo=qubo, p=p)
+delta = tuple(1 for _ in range(2 * p))
+qaoa.state(delta)
+
+# %%
+
 tdvp = tdvp_optimizer(
     state_param=qaoa.state, hamiltonian=qaoa.H, gram=qaoa.gram, grad=qaoa.grad
 )
-gram = np.round(qaoa.gram(tuple(1 for _ in range(2 * p))), 10)
-gram.H == gram
+gram = np.round(qaoa.gram(delta), 10)
+grambol = gram.H == gram
 # %%
