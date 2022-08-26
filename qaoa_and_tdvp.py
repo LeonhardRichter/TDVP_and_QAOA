@@ -253,9 +253,9 @@ class QAOA:
 
         # set the H qubo-circuit depending on inputmode
         if self.qubo is None:
-            self.qcH = self.qcHhamiltonian
+            self.qcH = self._qcHhamiltonian
         else:
-            self.qcH = self.qcHqubo
+            self.qcH = self._qcHqubo
 
     # hamiltonian_ground
     @property
@@ -314,7 +314,7 @@ class QAOA:
 
     ##############################################################################################
 
-    def qcHqubo(self, gamma: float) -> QubitCircuit:
+    def _qcHqubo(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = {"RZZ", rzz}
         for j in range(self.n):
@@ -334,7 +334,7 @@ class QAOA:
         return qc
 
     # define the qaoa gates as QubitCircuits
-    def qcHhamiltonian(self, gamma: float) -> QubitCircuit:
+    def _qcHhamiltonian(self, gamma: float) -> QubitCircuit:
         def H_exp(arg_value) -> Qobj:
             return (-1j * arg_value * self.H).expm()
 
@@ -343,7 +343,7 @@ class QAOA:
         qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma,2)}")
         return qc
 
-    def qcB(self, beta: float) -> QubitCircuit:
+    def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta,2)}")
         return qc
@@ -361,7 +361,7 @@ class QAOA:
 
         for i in range(p):
             qc.add_circuit(self.qcH(gammas[i]))
-            qc.add_circuit(self.qcB(betas[i]))
+            qc.add_circuit(self._qcB(betas[i]))
 
         return qc
 
@@ -393,11 +393,11 @@ class QAOA:
                 if layer == i:
                     for oper in opers:
                         qc.add_gate(oper)
-                qc.add_circuit(self.qcB(delta[i]))
+                qc.add_circuit(self._qcB(delta[i]))
         else:
             for layer in range(p):
                 qc.add_circuit(self.qcH(delta[i + p]))
-                qc.add_circuit(self.qcB(delta[i]))
+                qc.add_circuit(self._qcB(delta[i]))
                 if layer == i:
                     for oper in opers:
                         qc.add_gate(oper)
@@ -419,7 +419,7 @@ class QAOA:
         )
         return result
 
-    def Adouble(self, left: tuple, right: tuple, delta) -> np.complex_:
+    def _Adouble(self, left: tuple, right: tuple, delta) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
         Each of those is a QAOA state with some operators inserted at a certain position
 
@@ -431,7 +431,7 @@ class QAOA:
         right_state = self.circuit_i(delta, *right).run(self.mixer_ground)
         return (left_state.dag() * right_state)[0, 0]
 
-    def Asingle(self, left: tuple, right: tuple, delta) -> np.complex_:
+    def _Asingle(self, left: tuple, right: tuple, delta) -> np.complex_:
         """compute one summand of G_ij, i.e
 
         Args:
@@ -448,16 +448,16 @@ class QAOA:
         )  # negative of the delta parameters gives in this case the adjoint gates
         return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
 
-    def Gij(
+    def _Gij(
         self, ij: tuple[int], delta: tuple[float], grammode: str = "double"
     ) -> np.complex_:
         i, j = ij
         n = self.n
         qubo = self.qubo
         if grammode == "double":
-            A = self.Adouble
+            A = self._Adouble
         elif grammode == "single":
-            A = self.Asingle
+            A = self._Asingle
         if i <= p - 1 and j <= p - 1:
             element = sum(
                 [
@@ -642,20 +642,81 @@ class QAOA:
         ###### current parallized version#######
         return np.matrix(
             parallel_map(
-                task=self.Gij,
+                task=self._Gij,
                 values=list(product(range(2 * p), repeat=2)),
                 task_args=(delta, gram_mode),
             )
         ).reshape(2 * self.p, 2 * self.p)
 
-    def grad(self, delta: tuple[float]) -> NDArray:
+    def _grad_element(self, i, delta: tuple[float], dummy):
+        if i <= self.p - 1:
+            circ = self.circuit_i(
+                delta, [Gate("X", [k]) for k in range(self.n)], i % self.p, tilde=False
+            )
+            return (circ.run(self.mixer_ground).dag() * self.H * self.state(delta))[
+                0, 0
+            ]
+
+        if i > self.p - 1:
+            if self.qubo is None:
+
+                def H_gate() -> Qobj:
+                    assert (
+                        self.H.isunitary
+                    ), "Hamiltonian is not unitary. Can't use it for gradient evaluation."
+                    return self.H
+
+                circ = self.circuit_i(delta, [H_gate], i % self.p, tilde=True)
+
+                return (circ.run(self.mixer_ground).dag() * self.H * self.state(delta))[
+                    0, 0
+                ]
+
+            # if qubo was given, use it for implementing H by Z gates
+            if self.qubo is not None:
+                state = sum(
+                    [
+                        self.qubo[k, k]
+                        * (
+                            self.circuit_i(
+                                delta, [Gate("Z", [k])], i % self.p, tilde=True
+                            ).run(self.mixer_ground)
+                        )
+                        for k in range(self.n)
+                    ]
+                ) + sum(
+                    [
+                        # factor of two because qubo is symmetric and we only add each gate combination once
+                        2
+                        * self.qubo[k, l]
+                        * (
+                            self.circuit_i(
+                                delta,
+                                [Gate("Z", [k]), Gate("Z", [l])],
+                                i % self.p,
+                                tilde=True,
+                            ).run(self.mixer_ground)
+                        )
+                        for k, l in combinations(range(self.n), 2)
+                    ]
+                )
+                return (state.dag() * self.H * self.state(delta))[0, 0]
+
+    def grad(self, delta: tuple[float]):
+        return np.matrix(
+            parallel_map(self._grad_element, range(len(delta)), task_args=(delta, 0))
+        )
+
+    def grad_legacy(self, delta: tuple[float]) -> NDArray:
         states = []  # list for saving the states
         # first half -> beta derivatives
         for i in range(self.p):
             circ = self.circuit_i(
                 delta, [Gate("X", [k]) for k in range(self.n)], i, tilde=False
             )
-            states.append(circ.run(self.mixer_ground))
+            states.append(
+                circ.run(self.mixer_ground).dag() * self.H * self.state(delta)
+            )
         # second half -> gamma derivatives
         for i in range(self.p):
             # if no qubo known just apply the hamiltonian as gate
@@ -668,7 +729,9 @@ class QAOA:
                     return self.H
 
                 circ = self.circuit_i(delta, [H_gate], i, tilde=True)
-                states.append(circ.run(self.mixer_ground))
+                states.append(
+                    circ.run(self.mixer_ground).dag() * self.H * self.state(delta)
+                )
             # if qubo was given, use it for implementing H by Z gates
             if self.qubo is not None:
                 state = sum(
@@ -694,7 +757,7 @@ class QAOA:
                         for k, l in combinations(range(self.n), 2)
                     ]
                 )
-                states.append(state)
+                states.append(state.dag() * self.H * self.state(delta))
         return np.matrix(state).T
 
 
@@ -796,12 +859,10 @@ class tdvp_optimizer(Optimizer):
         p = int(len(pars))
         out = np.matrix(
             [
-                (
-                    dpsi(pars)[k].dag() * self.hamiltonian * self.state_param(pars)
-                ).full()[0, 0]
+                (dpsi(pars)[k].dag() * self.hamiltonian * self.state_param(pars))[0, 0]
                 for k in range(p)
             ]
-        ).T
+        )
         return out
 
     def gen_gram(self, pars: tuple[float]) -> np.matrix:
@@ -809,12 +870,15 @@ class tdvp_optimizer(Optimizer):
         p = int(len(pars))
         return np.matrix(
             [
-                [((dpsi(pars)[j]).dag() * dpsi(pars)[k]).full()[0, 0] for k in range(p)]
+                [((dpsi(pars)[j]).dag() * dpsi(pars)[k])[0, 0] for k in range(p)]
                 for j in range(p)
             ]
         )  # order of j,k must be correct -> j should be rows, k should be columns
 
-    def flow(self, delta_0: tuple[float]):
+    def flow(self, delta_0: tuple[float], Delta=None):
+        if Delta == None:
+            Delta = self.Delta
+
         def RHS(t, x):
             """right hand side of linear equation system of tdvp. In the right format for the scipy solvers.
 
@@ -827,11 +891,12 @@ class tdvp_optimizer(Optimizer):
             """
             imag_gram = linalg.inv(np.imag(self.gram(x)))
             real_grad = np.real(self.grad(x))
-            return np.array(-imag_gram * real_grad).flatten()
+            return np.array(-imag_gram * real_grad.T).flatten()
 
         result = integrate.solve_ivp(
             fun=RHS,
-            t_span=(0, self.Delta),
+            t_span=(0, Delta),
+            t_eval=[0, Delta],
             y0=delta_0,
             method="RK45",
         )
@@ -839,25 +904,50 @@ class tdvp_optimizer(Optimizer):
 
     def optimize(
         self,
-        fun: Callable[[tuple[float]], float],
         delta_0: tuple[float],
         max_iter: int = 1000,
+        threshhold: float = 10**-10,
+        Delta=None,
     ) -> QAOAResult:
-        pass
+        if Delta is None:
+            Delta = self.Delta
+        delta = delta_0
+        for _ in range(max_iter):
+            flow_result = self.flow(delta)
+            delta = tuple(flow_result.y[_, -1] for _ in range(len(flow_result.y)))
+            print(delta)
+            if linalg.norm(self.grad(delta)) < threshhold:
+                break
+        opt_result = QAOAResult()
+        opt_result.duration = 0
+        opt_result.success = 0
+        opt_result.optimal_parameters = delta
+        opt_result.message = ""
+        opt_result.optimal_fun_value = (
+            self.state_param(delta).dag() * self.hamiltonian * self.state_param(delta)
+        )[0, 0]
+        opt_result.num_fun_calls = 0
+        return opt_result
 
 
 #%%
-p = 5
-qubo = np.array([[1, 3, 5], [3, 4, 6], [5, 6, 7]])
+p = 1
+qubo = np.array([[1, 3], [3, 4]])
 qaoa = QAOA(qubo=qubo, p=p)
-delta = tuple(1 for _ in range(2 * p))
+delta = tuple(0.1 for _ in range(2 * p))
 qaoa.state(delta)
 
 # %%
 
 tdvp = tdvp_optimizer(
-    state_param=qaoa.state, hamiltonian=qaoa.H, gram=qaoa.gram, grad=qaoa.grad
+    state_param=qaoa.state,
+    hamiltonian=qaoa.H,
+    # gram=qaoa.gram,
+    # grad=qaoa.grad,
+    Delta=0.05,
 )
-gram = np.round(qaoa.gram(delta), 10)
-grambol = gram.H == gram
+
+# %%
+tdvp.optimize(delta_0=delta, max_iter=100)
+
 # %%
