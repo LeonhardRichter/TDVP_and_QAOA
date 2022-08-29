@@ -19,8 +19,6 @@ from qutip.parallel import parallel_map
 from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
 
-import multiprocessing as mp
-
 #%%
 # Define general expressions and objects
 
@@ -40,8 +38,14 @@ def rzz(arg_value):
 minus = (basis(2, 0) - basis(2, 1)).unit()
 
 
+def q_j(qubo: ArrayLike) -> NDArray:
+    qj = np.array([np.sum(row) - row[j] for j, row in enumerate(qubo)])
+    return qj
+
+
 def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
     n = qubo.shape[0]
+    qj = q_j(qubo)
     if constant == None:
         qconstant = Qobj(
             np.full((2**n, 2**n), 0),
@@ -50,7 +54,7 @@ def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
     else:
         qconstant = constant * qeye([2 for _ in range(n)])
     H = (
-        sum([qubo[i][i] * sz(n, i) for i in range(n)])
+        sum([(qubo[i][i] + qj[i]) * sz(n, i) for i in range(n)])
         + sum([qubo[j][k] * sz(n, j) * sz(n, k) for j, k in permutations(range(n), 2)])
         + qconstant
     )
@@ -244,6 +248,7 @@ class QAOA:
 
         if self.qubo is not None:
             self._n = qubo.shape[0]
+            self._qj = q_j(qubo)
         if self.H is not None:
             self._n = len(self.H.dims[0])
 
@@ -256,6 +261,16 @@ class QAOA:
             self.qcH = self._qcHhamiltonian
         else:
             self.qcH = self._qcHqubo
+
+    # qj
+    @property
+    def qj(self) -> NDArray:
+        """sum over one jth row of self.qubo except the diagonal value"""
+        return self._qj
+
+    @qj.setter
+    def qj(self, value: NDArray):
+        self._qj = value
 
     # hamiltonian_ground
     @property
@@ -321,15 +336,15 @@ class QAOA:
             qc.add_gate(
                 "RZ",
                 targets=j,
-                arg_value=2 * gamma * self.qubo[j][j],
-                arg_label=f"2*{round(gamma,2)}*{self.qubo[j][j]}",
+                arg_value=2 * gamma * (self.qubo[j][j] + self.qj[j]),
+                arg_label=f"2*{round(gamma,2)}*(Q_{j}{j}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
                 arg_value=2 * gamma * self.qubo[j][k],
-                arg_label=f"2*{round(gamma,2)}*{self.qubo[j][k]}",
+                arg_label=f"2*{round(gamma,2)}*Q_{j}{k}",
             )
         return qc
 
@@ -414,9 +429,8 @@ class QAOA:
         result = self.optimizer.optimize(
             fun=self.expectation, delta_0=delta_0, max_iter=max_iter
         )
-        result.optimal_state = self.circuit(result.optimal_parameters).run(
-            self.mixer_ground
-        )
+        result.optimal_state = self.state(result.optimal_parameters)
+
         return result
 
     def _Adouble(self, left: tuple, right: tuple, delta) -> np.complex_:
@@ -454,6 +468,7 @@ class QAOA:
         i, j = ij
         n = self.n
         qubo = self.qubo
+        qj = self.qj
         if grammode == "double":
             A = self._Adouble
         elif grammode == "single":
@@ -474,7 +489,7 @@ class QAOA:
 
             element = sum(
                 [
-                    qubo[l][l]
+                    (qubo[l][l] + qj[l])
                     * A(
                         ([Gate("X", [k])], i % p, False),
                         (
@@ -503,7 +518,7 @@ class QAOA:
         if j <= p - 1 < i:
             element = sum(
                 [
-                    qubo[l][l]
+                    (qubo[l][l] + qj[l])
                     * A(
                         ([Gate("Z", [l])], i % p, True),
                         ([Gate("X", [k])], j % p, False),
@@ -530,7 +545,7 @@ class QAOA:
                 sum(
                     [
                         qubo[k, k]
-                        * qubo[l, l]
+                        * (qubo[l, l] + qj[l])
                         * A(
                             ([Gate("Z", [k])], i % p, True),
                             ([Gate("Z", [l])], j % p, True),
@@ -543,7 +558,7 @@ class QAOA:
                     [
                         2
                         * qubo[k, l]
-                        * qubo[m, m]
+                        * (qubo[m, m] + qj[l])
                         * A(
                             ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
                             ([Gate("Z", [m])], j % p, True),
@@ -556,7 +571,7 @@ class QAOA:
                 + sum(
                     [
                         2
-                        * qubo[k, k]
+                        * (qubo[k, k] + qj[k])
                         * qubo[l, m]
                         * A(
                             ([Gate("Z", [k])], i % p, True),
@@ -676,7 +691,7 @@ class QAOA:
             if self.qubo is not None:
                 state = sum(
                     [
-                        self.qubo[k, k]
+                        (self.qubo[k, k] + self.qj[k])
                         * (
                             self.circuit_i(
                                 delta, [Gate("Z", [k])], i % self.p, tilde=True
@@ -935,7 +950,7 @@ p = 1
 qubo = np.array([[1, 3], [3, 4]])
 qaoa = QAOA(qubo=qubo, p=p)
 delta = tuple(0.1 for _ in range(2 * p))
-qaoa.state(delta)
+qaoa.optimizer = ScipyOptimizer()
 
 # %%
 
