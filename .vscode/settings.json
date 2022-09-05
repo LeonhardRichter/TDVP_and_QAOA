@@ -1,7 +1,7 @@
 {
   "python.formatting.provider": "black",
   "editor.formatOnSave": true,
-  "python.linting.banditEnabled": false,
-  "python.linting.pylintEnabled": true,
+  "python.linting.banditEnabled": true,
+  "python.linting.pylintEnabled": false,
   "python.linting.enabled": true
 }
