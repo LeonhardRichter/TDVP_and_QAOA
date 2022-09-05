@@ -1,4 +1,4 @@
-from qutip import *
+from qutip import sigmaz, sigmax, basis, tensor, qeye, Qobj
 from qutip.qip.operations import expand_operator, rz
 
 import numpy as np

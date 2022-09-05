@@ -1,7 +1,7 @@
 #%%
 from time import time as ttime
 from abc import ABC, abstractmethod
-from itertools import combinations, combinations_with_replacement, product, permutations
+from itertools import combinations, product
 from typing import Callable, Any, Iterable
 
 from numba import njit
@@ -9,14 +9,15 @@ from numba import njit
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 
-import scipy as sp
+# import scipy as sp
 from scipy import linalg
 from scipy import integrate
 from scipy.optimize import minimize
 
-from qutip import *
 from qutip.parallel import parallel_map
-from qutip.qip.operations import expand_operator, rz
+from qutip import expect
+
+# from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
 
 from quantum import *
@@ -741,7 +742,7 @@ class QAOA:
 
 
 # %%
-class tdvp_optimizer(Optimizer):
+class TdvpOptimizer(Optimizer):
     def __init__(
         self,
         state_param: Callable[[tuple[float]], Qobj],
@@ -819,10 +820,11 @@ class tdvp_optimizer(Optimizer):
     def finitediff(
         self, func: Callable[[Iterable[float]], Any], epsilon: float = 1e-10
     ) -> Callable[[Iterable[float]], list[Any]]:
-        def dfunc(params):
+        def dfunc(params) -> list:
             params = tuple(params)
             difference = list()
-            for i in range(2):
+            num_pars = int(len(params))
+            for i in range(num_pars):
                 p_params = list(params)
                 p_params[i] += epsilon
                 difference.append((func(p_params) - func(params)) / epsilon)
@@ -846,15 +848,15 @@ class tdvp_optimizer(Optimizer):
 
     def gen_gram(self, pars: tuple[float]) -> np.matrix:
         dpsi = self.finitediff(self.state_param)
-        p = int(len(pars))
+        num_pars = int(len(pars))
         return np.matrix(
             [
-                [((dpsi(pars)[j]).dag() * dpsi(pars)[k])[0, 0] for k in range(p)]
-                for j in range(p)
+                [((dpsi(pars)[j]).dag() * dpsi(pars)[k])[0, 0] for k in range(num_pars)]
+                for j in range(num_pars)
             ]
         )  # order of j,k must be correct -> j should be rows, k should be columns
 
-    def flow(self, delta_0: tuple[float], Delta=None):
+    def optimize(self, delta_0: tuple[float], Delta=None):
         if Delta == None:
             Delta = self.Delta
 
@@ -868,65 +870,54 @@ class tdvp_optimizer(Optimizer):
             Returns:
                 NDArray: the matrix defining the RHS of the equation
             """
-            imag_gram = linalg.inv(np.imag(self.gram(x)))
-            real_grad = np.real(self.grad(x))
-            return np.array(-imag_gram * real_grad.T).flatten()
+            inv_real_gram = linalg.inv(2 * np.real(self.gram(x)))
+            real_grad = 2 * np.real(self.grad(x))
+            return np.array(-inv_real_gram * real_grad.T).flatten()
 
-        result = integrate.solve_ivp(
+        t_0 = ttime()
+        int_result = integrate.solve_ivp(
             fun=RHS,
             t_span=(0, Delta),
-            t_eval=[0, Delta],
             y0=delta_0,
             method="RK45",
         )
-        return result
-
-    def optimize(
-        self,
-        delta_0: tuple[float],
-        max_iter: int = 1000,
-        threshhold: float = 10**-10,
-        Delta=None,
-    ) -> QAOAResult:
-        if Delta is None:
-            Delta = self.Delta
-        delta = delta_0
-        for _ in range(max_iter):
-            flow_result = self.flow(delta)
-            delta = tuple(flow_result.y[_, -1] for _ in range(len(flow_result.y)))
-            print(delta)
-            if linalg.norm(self.grad(delta)) < threshhold:
-                break
-        opt_result = QAOAResult()
-        opt_result.duration = 0
-        opt_result.success = 0
-        opt_result.optimal_parameters = delta
-        opt_result.message = ""
-        opt_result.optimal_fun_value = (
-            self.state_param(delta).dag() * self.hamiltonian * self.state_param(delta)
+        dt = ttime() - t_0
+        result = QAOAResult()
+        result.success = int_result.success
+        result.optimal_parameters = tuple(par[-1] for par in int_result.y)
+        result.duration = dt
+        result.message = int_result.message
+        result.optimal_state = self.state_param(result.optimal_parameters)
+        result.optimal_fun_value = (
+            result.optimal_state.dag() * self.hamiltonian * result.optimal_state
         )[0, 0]
-        opt_result.num_fun_calls = 0
-        return opt_result
+        result.num_fun_calls = int_result.nfev
+        try:
+            result.num_steps = int_result.nit
+        except AttributeError:
+            pass
+        result.optimizer_name = self.name
+
+        return result
 
 
 #%%
-p = 1
+p = 2
 qubo = np.array([[1, 3], [3, 4]])
 qaoa = QAOA(qubo=qubo, p=p)
-delta = tuple(0.1 for _ in range(2 * p))
+delta = tuple(1 for _ in range(2 * p))
 qaoa.optimizer = ScipyOptimizer()
 
 # %%
 
-tdvp = tdvp_optimizer(
+tdvp = TdvpOptimizer(
     state_param=qaoa.state,
     hamiltonian=qaoa.H,
-    # gram=qaoa.gram,
-    # grad=qaoa.grad,
-    Delta=0.05,
+    gram=qaoa.gram,
+    grad=qaoa.grad,
+    Delta=1,
 )
 
 # %%
-tdvp.optimize(delta_0=delta, max_iter=100)
-
-# %%
+tdvp_result = tdvp.optimize(delta)
+print(tdvp_result)
