@@ -1,13 +1,8 @@
 #%%
-from time import time as ttime
+from time import time as time
 from abc import ABC, abstractmethod
 from itertools import combinations, product
 from typing import Callable, Any, Iterable
-
-from numba import njit
-
-import numpy as np
-from numpy.typing import NDArray, ArrayLike
 
 # import scipy as sp
 from scipy import linalg
@@ -60,7 +55,7 @@ class QAOAResult:
         self._duration = value
 
     @property
-    def num_steps(self) -> int:
+    def num_steps(self) -> int | None:
         """The num_steps property."""
         try:
             return self._num_steps
@@ -173,11 +168,11 @@ class ScipyOptimizer(Optimizer):
         max_iter: int = 1000,
     ) -> QAOAResult:
         opt_result = QAOAResult()
-        t_0 = ttime()
+        t_0 = time()
         min_result = minimize(
             fun, x0=delta_0, method="COBYLA", options={"maxiter": max_iter}
         )
-        dt = ttime() - t_0
+        dt = time() - t_0
         opt_result.duration = dt
         opt_result.success = min_result.success
         opt_result.optimal_parameters = min_result.x
@@ -874,14 +869,14 @@ class TdvpOptimizer(Optimizer):
             real_grad = 2 * np.real(self.grad(x))
             return np.array(-inv_real_gram * real_grad.T).flatten()
 
-        t_0 = ttime()
+        t_0 = time()
         int_result = integrate.solve_ivp(
             fun=RHS,
             t_span=(0, Delta),
             y0=delta_0,
             method="RK45",
         )
-        dt = ttime() - t_0
+        dt = time() - t_0
         result = QAOAResult()
         result.success = int_result.success
         result.optimal_parameters = tuple(par[-1] for par in int_result.y)
@@ -913,8 +908,8 @@ qaoa.optimizer = ScipyOptimizer()
 tdvp = TdvpOptimizer(
     state_param=qaoa.state,
     hamiltonian=qaoa.H,
-    gram=qaoa.gram,
-    grad=qaoa.grad,
+    # gram=qaoa.gram,
+    # grad=qaoa.grad,
     Delta=1,
 )
 
