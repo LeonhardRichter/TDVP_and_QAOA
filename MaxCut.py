@@ -1,11 +1,6 @@
 #%%
 import networkx as nx
 
-import numpy as np
-from numpy.typing import NDArray
-
-from itertools import combinations
-
 from quantum import *
 
 #%%
@@ -13,6 +8,8 @@ from quantum import *
 
 class MaxCut:
     def __init__(self, graph: nx.Graph) -> None:
+        self.H = None
+        self._qubo = None
         self.graph = graph
         for (i, j) in self.graph.edges:
             if "weight" not in self.graph[i][j].keys():
@@ -25,15 +22,15 @@ class MaxCut:
         try:
             return self._qubo
         except AttributeError:
-            self._qubo = self.get_qubo()
+            self._qubo = self._get_qubo()
             return self._qubo
 
     @qubo.setter
     def qubo(self, value: NDArray):
         self._qubo = value
 
-    def get_qubo(self, graph: nx.Graph = None) -> NDArray:
-        if graph == None:
+    def _get_qubo(self, graph: nx.Graph = None) -> NDArray:
+        if graph is None:
             graph = self.graph
         n = graph.number_of_nodes()
         Q = np.zeros((n, n), dtype=np.float64)
@@ -54,7 +51,7 @@ class MaxCut:
         )
         return Q
 
-    def get_hamiltonian(self) -> None:
+    def get_hamiltonian(self) -> Qobj:
         self.H = H_from_qubo(self.qubo)
         return self.H
 

@@ -9,15 +9,15 @@ from numpy.typing import ArrayLike, NDArray
 from itertools import permutations
 
 
-def sz(n: int, i: int):
+def sz(n: int, i: int) -> Qobj:
     return expand_operator(sigmaz(), n, i, [2 for _ in range(n)])
 
 
-def sx(n: int, i: int):
+def sx(n: int, i: int) -> Qobj:
     return expand_operator(sigmax(), n, i, [2 for _ in range(n)])
 
 
-def rzz(arg_value):
+def rzz(arg_value) -> Qobj:
     return tensor(rz(arg_value), rz(-arg_value))
 
 
