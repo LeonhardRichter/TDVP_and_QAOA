@@ -8,22 +8,20 @@ from quantum import *
 
 class MaxCut:
     def __init__(self, graph: nx.Graph) -> None:
-        self.H = None
-        self._qubo = None
         self.graph = graph
         for (i, j) in self.graph.edges:
             if "weight" not in self.graph[i][j].keys():
                 self.graph[i][j]["weight"] = 1
+        self._qubo = self._get_qubo(self.graph)
+        self.H = self._get_hamiltonian()
 
-    # qubo
+
+
+# qubo
     @property
     def qubo(self) -> NDArray:
         """The qubo matrix for the mac-cut instance corresponding to self.graph"""
-        try:
-            return self._qubo
-        except AttributeError:
-            self._qubo = self._get_qubo()
-            return self._qubo
+        return self._qubo
 
     @qubo.setter
     def qubo(self, value: NDArray):
@@ -51,7 +49,7 @@ class MaxCut:
         )
         return Q
 
-    def get_hamiltonian(self) -> Qobj:
+    def _get_hamiltonian(self) -> Qobj:
         self.H = H_from_qubo(self.qubo)
         return self.H
 

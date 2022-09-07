@@ -1,5 +1,6 @@
-#%%
-from time import time as time
+# %%
+from time import time as time, process_time_ns
+import timeit
 from abc import ABC, abstractmethod
 from itertools import combinations, product
 from typing import Callable, Any, Iterable
@@ -9,23 +10,34 @@ from scipy import linalg
 from scipy import integrate
 from scipy.optimize import minimize
 
-from qutip.parallel import parallel_map
+from qutip.parallel import parallel_map, serial_map
 from qutip import expect
 
 # from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
+from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
 from quantum import *
 
-#%%
+
+# %%
 # Define general expressions and objects
 
 
-#%%
+# %%
 # Define qaoa class
 class QAOAResult:
     def __init__(self) -> None:
-        pass
+        self._message = None
+        self._optimizer_name = None
+        self._sucess = None
+        self._parameter_path = None
+        self._optimal_fun_value = None
+        self._num_fun_calls = None
+        self._num_steps = None
+        self._duration = None
+        self._optimal_state = None
+        self._optimal_parameters = None
 
     @property
     def optimal_parameters(self) -> tuple[float]:
@@ -123,7 +135,7 @@ class QAOAResult:
 
     def __str__(self):
         return f"""
-        {self.optimizer_name} terminated with {'no' if not self.success else''} sucess with message
+        {self.optimizer_name} terminated with {'no' if not self.success else ''} sucess with message
         \"{self.message}\"
 
         optimal parameters:     {self.optimal_parameters}
@@ -144,15 +156,15 @@ class Optimizer(ABC):
 
     @abstractmethod
     def optimize(
-        self,
-        fun: Callable[[tuple[float]], float],
-        delta_0: tuple[float],
-        max_iter: int = 1000,
+            self,
+            fun: Callable[[tuple[float]], float],
+            delta_0: tuple[float],
+            max_iter: int = 1000,
     ) -> QAOAResult:
         pass
 
 
-#%%
+# %%
 class ScipyOptimizer(Optimizer):
     def __init__(self, gram=None, grad=None) -> None:
         super().__init__()
@@ -162,15 +174,15 @@ class ScipyOptimizer(Optimizer):
         return "ScipyOptimizer"
 
     def optimize(
-        self,
-        fun: Callable[[tuple[float]], float],
-        delta_0: tuple[float],
-        max_iter: int = 1000,
+            self,
+            fun: Callable[[tuple[float]], float],
+            delta_0: tuple[float],
+            max_iter: int = 1000,
     ) -> QAOAResult:
         opt_result = QAOAResult()
         t_0 = time()
         min_result = minimize(
-            fun, x0=delta_0, method="COBYLA", options={"maxiter": max_iter}
+            fun, x0=np.array(delta_0), method="COBYLA", options={"maxiter": max_iter}
         )
         dt = time() - t_0
         opt_result.duration = dt
@@ -188,19 +200,22 @@ class ScipyOptimizer(Optimizer):
         return opt_result
 
 
-#%%
+# %%
 
 
 class QAOA:
     def __init__(
-        self,
-        hamiltonian: Qobj = None,
-        hamiltonian_ground: Qobj = None,
-        qubo: ArrayLike = None,
-        p: int = 1,
-        optimizer: Optimizer = None,
+            self,
+            hamiltonian: Qobj = None,
+            hamiltonian_ground: Qobj = None,
+            qubo: NDArray = None,
+            p: int = 1,
+            optimizer: Optimizer = None,
     ) -> None:
+        """
 
+        :type qubo: NDArray
+        """
         self._H = hamiltonian
         self.H_ground = hamiltonian_ground
         self.qubo = qubo
@@ -256,9 +271,8 @@ class QAOA:
     @property
     def H(self) -> Qobj:
         """The H property."""
-        if self._H == None:
-            if self.qubo is not None:
-                self._H = H_from_qubo(self.qubo)
+        if self._H is None and self.qubo is not None:
+            self._H = H_from_qubo(self.qubo)
         return self._H
 
     @H.setter
@@ -269,7 +283,7 @@ class QAOA:
     @property
     def n(self) -> int:
         """The n property."""
-        if self._n == None:
+        if self._n is None:
             self._n = len(self.H.dims[0])
         return self._n
 
@@ -295,16 +309,16 @@ class QAOA:
         for j in range(self.n):
             qc.add_gate(
                 "RZ",
-                targets=j,
+                targets=[j],
                 arg_value=2 * gamma * (self.qubo[j][j] + self.qj[j]),
-                arg_label=f"2*{round(gamma,2)}*(Q_{j}{j}+Q_{j})",
+                arg_label=f"2*{round(gamma, 2)}*(Q_{j}{j}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
                 arg_value=2 * gamma * self.qubo[j][k],
-                arg_label=f"2*{round(gamma,2)}*Q_{j}{k}",
+                arg_label=f"2*{round(gamma, 2)}*Q_{j}{k}",
             )
         return qc
 
@@ -315,12 +329,12 @@ class QAOA:
 
         qc = QubitCircuit(self.n)
         qc.user_gates = {"H_exp": H_exp}
-        qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma,2)}")
+        qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma, 2)}")
         return qc
 
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta,2)}")
+        qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
     # define the whole qaoa circuit
@@ -329,7 +343,7 @@ class QAOA:
         p = self.p
         n = self.n
         betas = delta[:p]
-        gammas = delta[p : 2 * p]
+        gammas = delta[p: 2 * p]
 
         # define mixer circuit
         qc = QubitCircuit(n)
@@ -341,7 +355,7 @@ class QAOA:
         return qc
 
     def circuit_i(
-        self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
+            self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
     ) -> QubitCircuit:
         """Compute the qaoa circuit with some gates inserted at a certain position.
 
@@ -355,8 +369,6 @@ class QAOA:
         Returns:
             QubitCircuit: the quantum circuit for this qaoa insertion.
         """
-        qubo = self.qubo
-        H = self.H
         n = self.n
         p = self.p
         assert len(delta) == 2 * p
@@ -379,7 +391,7 @@ class QAOA:
         return qc
 
     def state(self, delta: tuple[float]) -> Qobj:
-        return self.circuit((delta)).run(self.mixer_ground)
+        return self.circuit(delta).run(self.mixer_ground)
 
     def expectation(self, delta: tuple[float]) -> float:
         assert len(delta) == 2 * self.p
@@ -397,9 +409,9 @@ class QAOA:
         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
         Each of those is a QAOA state with some operators inserted at a certain position
 
-        Args:
-            left  (tuple): (H1:[Gate],i:int,tilde:bool) H1 is the list of operators to insert, i is the qaoa layer to insert at, tilde determines whether to insert inbetween or after the two qaoa gates
-            right (tuple): (H2:[Gate],j:int,tilde:bool) see left
+        Args: left  (tuple): (H1:[Gate],i:int,tilde:bool) H1 is the list of operators to insert, i is the qaoa layer
+        to insert at, tilde determines whether to insert inbetween or after the two qaoa gates right (tuple): (H2:[
+        Gate],j:int,tilde:bool) see left
         """
         left_state = self.circuit_i(delta, *left).run(self.mixer_ground)
         right_state = self.circuit_i(delta, *right).run(self.mixer_ground)
@@ -423,8 +435,9 @@ class QAOA:
         return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
 
     def _Gij(
-        self, ij: tuple[int], delta: tuple[float], grammode: str = "double"
+            self, ij: tuple[int], delta: tuple[float], grammode: str = "double"
     ) -> np.complex_:
+        # noinspection PyTupleAssignmentBalance
         i, j = ij
         n = self.n
         qubo = self.qubo
@@ -446,7 +459,6 @@ class QAOA:
             )
 
         if i <= p - 1 < j:
-
             element = sum(
                 [
                     (qubo[l][l] + qj[l])
@@ -494,7 +506,9 @@ class QAOA:
                         ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
                         ([Gate("X", [m])], j % p, False),
                         delta,
-                    )  # 2* is due to qubo being symmetric and not upper triangular AND that it does not matter where which Z lands
+                    )
+                    # 2* is due to qubo being symmetric and not upper triangular AND that it does not matter where
+                    # which Z lands
                     for k, l, m in product(range(n), repeat=3)
                     if k < l
                 ]
@@ -502,65 +516,64 @@ class QAOA:
 
         if i > p - 1 and j > p - 1:
             element = (
-                sum(
-                    [
-                        qubo[k, k]
-                        * (qubo[l, l] + qj[l])
-                        * A(
-                            ([Gate("Z", [k])], i % p, True),
-                            ([Gate("Z", [l])], j % p, True),
-                            delta,
-                        )
-                        for k, l in product(range(n), repeat=2)
-                    ]
+                    sum(
+                        [
+                            qubo[k, k]
+                            * (qubo[l, l] + qj[l])
+                            * A(
+                                ([Gate("Z", [k])], i % p, True),
+                                ([Gate("Z", [l])], j % p, True),
+                                delta,
+                            )
+                            for k, l in product(range(n), repeat=2)
+                        ]
+                    )
+                    + sum([
+                2
+                * qubo[k, l]
+                * (qubo[m, m] + qj[l])
+                * A(
+                    ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
+                    ([Gate("Z", [m])], j % p, True),
+                    delta,
                 )
-                + sum(
-                    [
-                        2
-                        * qubo[k, l]
-                        * (qubo[m, m] + qj[l])
-                        * A(
-                            ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
-                            ([Gate("Z", [m])], j % p, True),
-                            delta,
-                        )
-                        for k, l, m in product(range(n), repeat=3)
-                        if k < l
-                    ]
-                )
-                + sum(
-                    [
-                        2
-                        * (qubo[k, k] + qj[k])
-                        * qubo[l, m]
-                        * A(
-                            ([Gate("Z", [k])], i % p, True),
-                            ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
-                            delta,
-                        )
-                        for k, l, m in product(range(n), repeat=3)
-                        if l < m
-                    ]
-                )
-                + sum(
-                    [
-                        2
-                        * qubo[k, l]
-                        * 2
-                        * qubo[m, n]
-                        * A(
-                            ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
-                            ([Gate("Z", [m]), Gate("Z", [n])], j % p, True),
-                            delta,
-                        )
-                        for k, l, m, n in product(range(n), repeat=4)
-                        if k < l and m < n
-                    ]
-                )
+                for k, l, m in product(range(n), repeat=3)
+                if k < l
+            ]
+            )
+                    + sum(
+                [
+                    2
+                    * (qubo[k, k] + qj[k])
+                    * qubo[l, m]
+                    * A(
+                        ([Gate("Z", [k])], i % p, True),
+                        ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
+                        delta,
+                    )
+                    for k, l, m in product(range(n), repeat=3)
+                    if l < m
+                ]
+            )
+                    + sum(
+                [
+                    2
+                    * qubo[k, l]
+                    * 2
+                    * qubo[m, n]
+                    * A(
+                        ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
+                        ([Gate("Z", [m]), Gate("Z", [n])], j % p, True),
+                        delta,
+                    )
+                    for k, l, m, n in product(range(n), repeat=4)
+                    if k < l and m < n
+                ]
+            )
             )
         return element
 
-    def gram(self, delta: tuple[float], gram_mode: str = "double") -> NDArray:
+    def gram(self, delta: tuple[float], gram_mode: str = "single", **kwargs) -> NDArray:
         """Evaluate the gram matrix of an qubo-qaoa state on a quantum circuit.
 
         Args:
@@ -568,52 +581,11 @@ class QAOA:
             H (Qobj): the hamiltonian of the qaoa.
             qubo (NDArray): the qubo matrix in symmetric form .
             gram_mode (str, optional): Mode for the evaluation. Must be either 'double' or 'single'. If set to 'double', each side of the inner product is computed
-            on its own, and then the product is eavlauated. If set to 'single', the gates of both factors are merged into one circuit. Defaults to 'double'.
+            on its own, and then the product is eavlauated. If set to 'single', the gates of both factors are merged into one circuit. Defaults to 'single'.
 
         Returns:
             NDArray: The gram matrix of the qaoa with given parameters.
         """
-        # #######legacy code########
-        # n = self.n
-        # p = self.p
-        # U_i = self.circuit_i
-        # qubo = self.qubo
-        # # two methods: one for computing both sides sepeartely (2 circuits) and for one longer circuit
-        # if gram_mode == "double":
-
-        #     def A(left: tuple, right: tuple, delta) -> np.complex_:
-        #         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
-        #         Each of those is a QAOA state with some operators inserted at a certain position
-
-        #         Args:
-        #             left  (tuple): (H1:[Gate],i:int,tilde:bool) H1 is the list of operators to insert, i is the qaoa layer to insert at, tilde determines whether to insert inbetween or after the two qaoa gates
-        #             right (tuple): (H2:[Gate],j:int,tilde:bool) see left
-        #         """
-        #         left_state = U_i(delta, *left).run(self.mixer_ground)
-        #         right_state = U_i(delta, *right).run(self.mixer_ground)
-        #         return (left_state.dag() * right_state)[0, 0]
-
-        # elif gram_mode == "single":
-
-        #     def A(left: tuple, right: tuple, delta) -> np.complex_:
-        #         """compute one summand of G_ij, i.e
-
-        #         Args:
-        #             left  (tuple): (H1:[Gate],i:int,tilde:bool)
-        #             right (tuple): (H2:[Gate],j:int,tilde:bool)
-        #         """
-        #         m_delta = tuple(-t for t in delta)
-        #         qc = QubitCircuit(n)
-        #         qc.add_circuit(U_i(delta, *right))
-        #         # leftqc = U_i(m_delta,*left)
-        #         # leftqc.add_1q_gate("SNOT") # add hadamards on every qubit to change basis (minus state now is )
-        #         qc.add_circuit(
-        #             U_i(m_delta, *left).reverse_circuit()
-        #         )  # negative of the delta parameters gives in this case the adjoint gates
-        #         return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
-
-        # # initialize the matrix
-        # G = np.zeros((2 * p, 2 * p), dtype=np.complex128)
         ###### current parallized version#######
         return np.matrix(
             parallel_map(
@@ -623,7 +595,7 @@ class QAOA:
             )
         ).reshape(2 * self.p, 2 * self.p)
 
-    def _grad_element(self, i, delta: tuple[float], dummy):
+    def _grad_element(self, i, delta: tuple[float]):
         if i <= self.p - 1:
             circ = self.circuit_i(
                 delta, [Gate("X", [k]) for k in range(self.n)], i % self.p, tilde=False
@@ -634,7 +606,6 @@ class QAOA:
 
         if i > self.p - 1:
             if self.qubo is None:
-
                 def H_gate() -> Qobj:
                     assert (
                         self.H.isunitary
@@ -677,9 +648,9 @@ class QAOA:
                 )
                 return (state.dag() * self.H * self.state(delta))[0, 0]
 
-    def grad(self, delta: tuple[float]):
+    def grad(self, delta: tuple[float], **kwargs):
         return np.matrix(
-            parallel_map(self._grad_element, range(len(delta)), task_args=(delta, 0))
+            parallel_map(self._grad_element, range(len(delta)), task_args=(delta,))
         )
 
     def grad_legacy(self, delta: tuple[float]) -> NDArray:
@@ -696,7 +667,6 @@ class QAOA:
         for i in range(self.p):
             # if no qubo known just apply the hamiltonian as gate
             if self.qubo is None:
-
                 def H_gate() -> Qobj:
                     assert (
                         self.H.isunitary
@@ -736,15 +706,58 @@ class QAOA:
         return np.matrix(state).T
 
 
-# %%
+def scipy_optimize(
+        qaoa: QAOA,
+        delta_0: tuple[float],
+        max_iter: int = 1000,
+) -> QAOAResult:
+    opt_result = QAOAResult()
+    t_0 = time()
+    min_result = minimize(
+        qaoa.expectation, x0=np.array(delta_0), method="COBYLA", options={"maxiter": max_iter}
+    )
+    dt = time() - t_0
+    opt_result.duration = dt
+    opt_result.success = min_result.success
+    opt_result.optimal_parameters = min_result.x
+    opt_result.message = min_result.message
+    opt_result.optimal_fun_value = min_result.fun
+    opt_result.num_fun_calls = min_result.nfev
+    try:
+        opt_result.num_steps = min_result.nit
+    except AttributeError:
+        pass
+    opt_result.optimal_state = qaoa.state(opt_result.optimal_parameters)
+    opt_result.optimizer_name = "scipy_cobyla"
+
+    return opt_result
+
+
+def finitediff(
+        func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-10
+) -> Callable[[tuple[float]], list[Qobj]]:
+    def dfunc(params) -> list:
+        params = tuple(params)
+        difference = list()
+        num_pars = int(len(params))
+        for i in range(num_pars):
+            # p_params = list(params)
+            # p_params[i] += epsilon
+            p_params = params[:i] + (params[i] + epsilon,) + params[i + 1:]
+            difference.append((func(p_params) - func(params)) / epsilon)
+        return difference
+
+    return dfunc
+
+
 class TdvpOptimizer(Optimizer):
     def __init__(
-        self,
-        state_param: Callable[[tuple[float]], Qobj],
-        hamiltonian: Qobj,
-        gram: Callable[[tuple[float]], NDArray] = None,
-        grad: Callable[[tuple[float]], NDArray] = None,
-        Delta: float = 10 ** (-3),
+            self,
+            state_param: Callable[[tuple[float]], Qobj],
+            hamiltonian: Qobj,
+            gram: Callable[[tuple[float]], NDArray] = None,
+            grad: Callable[[tuple[float]], NDArray] = None,
+            Delta: float = 10 ** (-3),
     ) -> None:
         super().__init__()
         self._hamiltonian = hamiltonian
@@ -812,26 +825,11 @@ class TdvpOptimizer(Optimizer):
     def name(self) -> str:
         return "tdvp_optimizer"
 
-    def finitediff(
-        self, func: Callable[[Iterable[float]], Any], epsilon: float = 1e-10
-    ) -> Callable[[Iterable[float]], list[Any]]:
-        def dfunc(params) -> list:
-            params = tuple(params)
-            difference = list()
-            num_pars = int(len(params))
-            for i in range(num_pars):
-                p_params = list(params)
-                p_params[i] += epsilon
-                difference.append((func(p_params) - func(params)) / epsilon)
-            return difference
-
-        return dfunc
-
     def gen_grad(
-        self,
-        pars: tuple[float],
+            self,
+            pars: tuple[float],
     ) -> np.matrix:
-        dpsi = self.finitediff(self.state_param)
+        dpsi = finitediff(self.state_param)
         p = int(len(pars))
         out = np.matrix(
             [
@@ -842,7 +840,7 @@ class TdvpOptimizer(Optimizer):
         return out
 
     def gen_gram(self, pars: tuple[float]) -> np.matrix:
-        dpsi = self.finitediff(self.state_param)
+        dpsi = finitediff(self.state_param)
         num_pars = int(len(pars))
         return np.matrix(
             [
@@ -851,8 +849,8 @@ class TdvpOptimizer(Optimizer):
             ]
         )  # order of j,k must be correct -> j should be rows, k should be columns
 
-    def optimize(self, delta_0: tuple[float], Delta=None):
-        if Delta == None:
+    def optimize(self, delta_0: tuple[float], Delta=None, **kwargs):
+        if Delta is None:
             Delta = self.Delta
 
         def RHS(t, x):
@@ -884,7 +882,7 @@ class TdvpOptimizer(Optimizer):
         result.message = int_result.message
         result.optimal_state = self.state_param(result.optimal_parameters)
         result.optimal_fun_value = (
-            result.optimal_state.dag() * self.hamiltonian * result.optimal_state
+                result.optimal_state.dag() * self.hamiltonian * result.optimal_state
         )[0, 0]
         result.num_fun_calls = int_result.nfev
         try:
@@ -896,23 +894,126 @@ class TdvpOptimizer(Optimizer):
         return result
 
 
-#%%
+def gen_grad(pars: tuple[float],
+             qaoa: QAOA,
+             ) -> np.matrix:
+    dpsi = finitediff(qaoa.state)
+    p = int(len(pars))
+    out = np.matrix(
+        [
+            (dpsi(pars)[k].dag() * qaoa.H * qaoa.state(pars))[0, 0]
+            for k in range(p)
+        ]
+    )
+    return out
+
+
+def gen_gram(pars: tuple[float],
+             qaoa: QAOA
+             ) -> np.matrix:
+    dpsi = finitediff(qaoa.state)
+    num_pars = int(len(pars))
+    return np.matrix(
+        [
+            [((dpsi(pars)[j]).dag() * dpsi(pars)[k])[0, 0] for k in range(num_pars)]
+            for j in range(num_pars)
+        ]
+    )  # order of j,k must be correct -> j should be rows, k should be columns
+
+
+def gen_tdvp_rhs(t, x):
+    """right hand side of linear equation system of tdvp. In the right format for the scipy solvers.
+
+    Args:
+        t (float): time variable
+        x (tuple[float]): parameter input
+
+    Returns:
+        NDArray: the matrix defining the RHS of the equation
+    """
+    inv_real_gram = linalg.inv(2 * np.real(gen_gram(x)))
+    real_grad = 2 * np.real(gen_grad(x))
+    return np.array(-inv_real_gram * real_grad.T).flatten()
+
+
+def qaoa_tdvp_rhs(t, x, qaoa):
+    """right hand side of linear equation system of tdvp. In the right format for the scipy solvers.
+
+    Args:
+        t (float): time variable
+        x (tuple[float]): parameter input
+
+    Returns:
+        NDArray: the matrix defining the RHS of the equation
+    """
+    inv_real_gram = linalg.inv(2 * np.real(qaoa.gram(x)))
+    real_grad = 2 * np.real(qaoa.grad(x))
+    return np.array(-inv_real_gram * real_grad.T).flatten()
+
+
+rhs_step = 0
+
+
+def tdvp_optimize_qaoa(qaoa: QAOA,
+                       delta_0: tuple[float],
+                       Delta: float = .01,
+                       gram_circ: bool = True
+                       ):
+    if gram_circ:
+        def tdvp_rhs(t, x):
+            global rhs_step
+            inv_real_gram = linalg.inv(2 * np.real(qaoa.gram(x)))
+            real_grad = 2 * np.real(qaoa.grad(x))
+            rhs_step += 1
+            print('step ', rhs_step)
+            return np.array(-inv_real_gram * real_grad.T).flatten()
+    else:
+        def tdvp_rhs(t, x):
+            inv_real_gram = linalg.inv(2 * np.real(gen_gram(x, qaoa)))
+            real_grad = 2 * np.real(gen_grad(x, qaoa))
+            return np.array(-inv_real_gram * real_grad.T).flatten()
+    t_0 = time()
+    int_result = integrate.solve_ivp(
+        fun=tdvp_rhs,
+        t_span=(0, Delta),
+        y0=delta_0,
+        method="RK45"
+    )
+    dt = time() - t_0
+    result = QAOAResult()
+    result.success = int_result.success
+    result.optimal_parameters = tuple(par[-1] for par in int_result.y)
+    result.duration = dt
+    result.message = int_result.message
+    result.optimal_state = qaoa.state(result.optimal_parameters)
+    result.optimal_fun_value = (
+            result.optimal_state.dag() * qaoa.H * result.optimal_state
+    )[0, 0]
+    result.num_fun_calls = int_result.nfev
+    try:
+        result.num_steps = int_result.nit
+    except AttributeError:
+        pass
+    result.optimizer_name = f"tdvp_optimizer with {'circuit' if gram_circ else 'finitediff'} gradient evaluation"
+
+    return result
+
+
+# %%
 p = 2
-qubo = np.array([[1, 3], [3, 4]])
+qubo = np.array([[0, 2.0, 1.0, 1.0, 0.0, 0.0],
+                 [1, 1.0, 2.0, 0.0, 1.0, 0.0],
+                 [2, 1.0, 0.0, 3.0, 1.0, 1.0],
+                 [3, 0.0, 1.0, 1.0, 3.0, 1.0],
+                 [4, 0.0, 0.0, 1.0, 1.0, 2.0]])
 qaoa = QAOA(qubo=qubo, p=p)
-delta = tuple(1 for _ in range(2 * p))
-qaoa.optimizer = ScipyOptimizer()
+delta = tuple(.1 for _ in range(2 * p))
+
 
 # %%
-
-tdvp = TdvpOptimizer(
-    state_param=qaoa.state,
-    hamiltonian=qaoa.H,
-    # gram=qaoa.gram,
-    # grad=qaoa.grad,
-    Delta=1,
-)
+def timing(func):
+    t0 = process_time_ns()
+    res = func()
+    return (process_time_ns() - t0) * 10 ** -9, res
 
 # %%
-tdvp_result = tdvp.optimize(delta)
-print(tdvp_result)
