@@ -3,6 +3,7 @@
 poetry.lock
 pyproject.toml
 .replit
+.idea
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
