@@ -1,14 +1,15 @@
 # %%
 from time import time as time, process_time_ns
-import timeit
 from abc import ABC, abstractmethod
 from itertools import combinations, product
-from typing import Callable, Any, Iterable
+from typing import Callable
 
 # import scipy as sp
 from scipy import linalg
 from scipy import integrate
 from scipy.optimize import minimize
+
+import numpy as np
 
 from qutip.parallel import parallel_map, serial_map
 from qutip import expect
@@ -950,28 +951,60 @@ def qaoa_tdvp_rhs(t, x, qaoa):
     real_grad = 2 * np.real(qaoa.grad(x))
     return np.array(-inv_real_gram * real_grad.T).flatten()
 
+def qaoa_lineq_tdvp_rhs(t, x, qaoa):
+    """right hand side of linear equation system of tdvp. In the right format for the scipy solvers.
 
-rhs_step = 0
+    Args:
+        t (float): time variable
+        x (tuple[float]): parameter input
+
+    Returns:
+        NDArray: the matrix defining the RHS of the equation
+    """
+    inv_real_gram = linalg.inv(2 * np.real(qaoa.gram(x)))
+    real_grad = 2 * np.real(qaoa.grad(x))
+    return np.array(-inv_real_gram * real_grad.T).flatten()
 
 
 def tdvp_optimize_qaoa(qaoa: QAOA,
                        delta_0: tuple[float],
                        Delta: float = .01,
-                       gram_circ: bool = True
+                       rhs_mode: str = "qaoa"
                        ):
-    if gram_circ:
+    """optimize an qaoa instance by tdvp for imaginary time evolution.
+
+    Args:
+        qaoa (QAOA): the qaoa instance to be optimized
+        delta_0 (tuple[float]): the initial parameters
+        Delta (float, optional): The imaginary time duration for which to evolve. Defaults to .01.
+        rhs_mode (str, optional): Mode for computing the rhs of the ODE. Possible values are "qaoa","gen" and "qaoa_lineq".
+                                "qaoa" uses the qaoa instance to compute the rhs, "gen" uses the gen_grad and gen_gram.
+                                "qaoa_lineq" uses the qaoa instance to compute the rhs, but does not invert the gram matrix.
+                                Instead it solves the linear equation system G_ijx_i = d_j E, where x_i is the time derivative of the parameters. Defaults to "qaoa".
+
+    Returns:
+        _type_: _description_
+    """
+    rhs_step = 0
+    if rhs_mode=="qaoa":
         def tdvp_rhs(t, x):
-            global rhs_step
-            inv_real_gram = linalg.inv(2 * np.real(qaoa.gram(x)))
-            real_grad = 2 * np.real(qaoa.grad(x))
+            nonlocal rhs_step
             rhs_step += 1
-            print('step ', rhs_step)
-            return np.array(-inv_real_gram * real_grad.T).flatten()
-    else:
+            print(f"rhs step {rhs_step}")
+            qaoa_tdvp_rhs(t,x)
+    elif rhs_mode=="gen":
         def tdvp_rhs(t, x):
-            inv_real_gram = linalg.inv(2 * np.real(gen_gram(x, qaoa)))
-            real_grad = 2 * np.real(gen_grad(x, qaoa))
-            return np.array(-inv_real_gram * real_grad.T).flatten()
+            nonlocal rhs_step
+            rhs_step += 1
+            print(f"rhs step {rhs_step}")
+            gen_tdvp_rhs(t,x)
+    elif rhs_mode=="qaoa_lineq":
+        def tdvp_rhs(t, x):
+            nonlocal rhs_step
+            rhs_step += 1
+            print(f"rhs step {rhs_step}")
+            qaoa_lineq_tdvp_rhs(t,x)
+            
     t_0 = time()
     int_result = integrate.solve_ivp(
         fun=tdvp_rhs,
@@ -994,7 +1027,7 @@ def tdvp_optimize_qaoa(qaoa: QAOA,
         result.num_steps = int_result.nit
     except AttributeError:
         pass
-    result.optimizer_name = f"tdvp_optimizer with {'circuit' if gram_circ else 'finitediff'} gradient evaluation"
+    result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation"
 
     return result
 
