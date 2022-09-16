@@ -17,8 +17,8 @@ def sx(n: int, i: int) -> Qobj:
     return expand_operator(sigmax(), n, i, [2 for _ in range(n)])
 
 
-def rzz(arg_value) -> Qobj:
-    return tensor(rz(arg_value), rz(-arg_value))
+# def rzz(arg_value) -> Qobj:
+#     return tensor(rz(arg_value), rz(-arg_value))
 
 
 minus = (basis(2, 0) - basis(2, 1)).unit()

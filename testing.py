@@ -13,10 +13,17 @@ p = 2
 #     ]
 # )
 
-instance = MaxCut(nx.house_graph())
+instance = MaxCut(nx.triangular_lattice_graph(1, 1))
+nx.draw(instance.graph, with_labels=True)
+
 qaoa = QAOA(qubo=instance.qubo, p=p)
-delta = tuple(0.1 for _ in range(2 * p))
+delta = tuple(1 for _ in range(2 * p))
+qaoa.circuit(delta).gates
 
-gram = qaoa.gram(delta)
+# gram = qaoa.gram(delta)
+#%%
+# res = tdvp_optimize_qaoa(qaoa, delta, 0.1, int_mode="euler")
 
-# res = tdvp_optimize_qaoa(qaoa, delta, 0.05)
+# # %%
+# len(qaoa.circuit(delta).gates) == 2 * p
+# %%

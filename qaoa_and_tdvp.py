@@ -27,123 +27,8 @@ from quantum import *
 
 # %%
 # Define qaoa class
-class QAOAResult:
-    def __init__(self) -> None:
-        self._message = None
-        self._optimizer_name = None
-        self._sucess = None
-        self._parameter_path = None
-        self._optimal_fun_value = None
-        self._num_fun_calls = None
-        self._num_steps = None
-        self._duration = None
-        self._optimal_state = None
-        self._optimal_parameters = None
-
-    @property
-    def optimal_parameters(self) -> tuple[float]:
-        """The optimal_parameters property."""
-        return self._optimal_parameters
-
-    @optimal_parameters.setter
-    def optimal_parameters(self, value: tuple[float]):
-        self._optimal_parameters = value
-
-    @property
-    def optimal_state(self) -> Qobj():
-        """The optimal_state property."""
-        return self._optimal_state
-
-    @optimal_state.setter
-    def optimal_state(self, value: Qobj()):
-        self._optimal_state = value
-
-    @property
-    def duration(self) -> float:
-        """The duration property."""
-        return self._duration
-
-    @duration.setter
-    def duration(self, value: float):
-        self._duration = value
-
-    @property
-    def num_steps(self) -> int | None:
-        """The num_steps property."""
-        try:
-            return self._num_steps
-        except AttributeError:
-            return None
-
-    @num_steps.setter
-    def num_steps(self, value: int):
-        self._num_steps = value
-
-    @property
-    def num_fun_calls(self) -> int:
-        """The num_fun_calls property."""
-        return self._num_fun_calls
-
-    @num_fun_calls.setter
-    def num_fun_calls(self, value: int):
-        self._num_fun_calls = value
-
-    @property
-    def optimal_fun_value(self) -> float:
-        """The optimal_fun_value property."""
-        return self._optimal_fun_value
-
-    @optimal_fun_value.setter
-    def optimal_fun_value(self, value: float):
-        self._optimal_fun_value = value
-
-    @property
-    def parameter_path(self) -> list[tuple[float]]:
-        """The parameter_path property."""
-        return self._parameter_path
-
-    @parameter_path.setter
-    def parameter_path(self, value: list[tuple[float]]):
-        self._parameter_path = value
-
-    @property
-    def success(self) -> bool:
-        """The sucess property."""
-        return self._sucess
-
-    @success.setter
-    def success(self, value: bool):
-        self._sucess = value
-
-    @property
-    def optimizer_name(self) -> str:
-        """The optimizer_name property."""
-        return self._optimizer_name
-
-    @optimizer_name.setter
-    def optimizer_name(self, value: str):
-        self._optimizer_name = value
-
-    # message
-    @property
-    def message(self) -> str:
-        """The message property."""
-        return self._message
-
-    @message.setter
-    def message(self, value: str) -> None:
-        self._message = value
-
-    def __str__(self):
-        return f"""
-        {self.optimizer_name} terminated with {'no' if not self.success else ''} sucess with message
-        \"{self.message}\"
-
-        optimal parameters:     {self.optimal_parameters}
-        optimal value:          {self.optimal_fun_value}
-        number of fun calls:    {self.num_fun_calls}
-        number of steps:        {self.num_steps}
-        """
+def rzz(arg_value) -> Qobj:
+    return tensor(rz(arg_value), rz(-arg_value))
 
 
 # %%
@@ -156,7 +41,6 @@ class QAOA:
         hamiltonian_ground: Qobj = None,
         qubo: NDArray = None,
         p: int = 1,
-        optimizer: Callable[[], QAOAResult] = None,
         grammode: str = "single",
     ) -> None:
         """
@@ -174,8 +58,6 @@ class QAOA:
         if self.H is not None:
             self._n = len(self.H.dims[0])
 
-        self._optimizer = optimizer
-
         self.mixer_ground = tensor([minus for _ in range(self.n)])
 
         # set the H qubo-circuit depending on inputmode
@@ -189,16 +71,6 @@ class QAOA:
                 self._A = self._Adouble
             case "single":
                 self._A = self._Asingle
-
-    # qcH
-    @property
-    def qcH(self) -> Callable[[tuple[float]], QubitCircuit]:
-        """The qcH property."""
-        return self._qcH
-
-    @qcH.setter
-    def qcH(self, value: Callable[[tuple[float]], QubitCircuit]) -> None:
-        self._qcH = value
 
     # qj
     @property
@@ -254,16 +126,6 @@ class QAOA:
     def n(self, value: int) -> None:
         self._n = value
 
-    # optimizer
-    @property
-    def optimizer(self) -> Callable[[], QAOAResult]:
-        """The optimizer property."""
-        return self._optimizer
-
-    @optimizer.setter
-    def optimizer(self, value: Callable[[], QAOAResult]) -> None:
-        self._optimizer = value
-
     ##############################################################################################
 
     def _qcHqubo(self, gamma: float) -> QubitCircuit:
@@ -274,15 +136,22 @@ class QAOA:
                 "RZ",
                 targets=[j],
                 arg_value=2 * gamma * (self.qubo[j][j] + self.qj[j]),
-                arg_label=f"2*{round(gamma, 2)}*(Q_{j}{j}+Q_{j})",
+                arg_label=f"2*{round(gamma, 2)}*(Q_{{{j}{j}}}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
+            print("moin")
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
                 arg_value=2 * gamma * self.qubo[j][k],
-                arg_label=f"2*{round(gamma, 2)}*Q_{j}{k}",
+                arg_label=f"2*{round(gamma, 2)}*Q_{{{j}{k}}}",
             )
+            # qc.add_gate(
+            #     "RZZ",
+            #     targets=[j, k],
+            #     arg_value=2 * gamma * self.qubo[j, k],
+            #     arg_label=f"2*{round(gamma, 2)}*Q_{{{j}{k}}}",
+            # )
         return qc
 
     # define the qaoa gates as QubitCircuits
@@ -307,12 +176,13 @@ class QAOA:
         n = self.n
         betas = delta[:p]
         gammas = delta[p : 2 * p]
+        print(gammas)
 
         # define mixer circuit
         qc = QubitCircuit(n)
 
         for i in range(p):
-            qc.add_circuit(self.qcH(gammas[i]))
+            qc.add_circuit(self._qcH(gammas[i]))
             qc.add_circuit(self._qcB(betas[i]))
 
         return qc
@@ -340,14 +210,14 @@ class QAOA:
         match tilde:
             case True:
                 for layer in range(p):
-                    qc.add_circuit(self.qcH(delta[i + p]))
+                    qc.add_circuit(self._qcH(delta[i + p]))
                     if layer == i:
                         for oper in opers:
                             qc.add_gate(oper)
                     qc.add_circuit(self._qcB(delta[i]))
             case False:
                 for layer in range(p):
-                    qc.add_circuit(self.qcH(delta[i + p]))
+                    qc.add_circuit(self._qcH(delta[i + p]))
                     qc.add_circuit(self._qcB(delta[i]))
                     if layer == i:
                         for oper in opers:
@@ -388,14 +258,6 @@ class QAOA:
     def expectation(self, delta: tuple[float]) -> float:
         assert len(delta) == 2 * self.p
         return expect(self.H, self.state(delta))
-
-    def solve(self, delta_0: tuple[float], max_iter=1000) -> QAOAResult:
-        result = self.optimizer.optimize(
-            fun=self.expectation, delta_0=delta_0, max_iter=max_iter
-        )
-        result.optimal_state = self.state(result.optimal_parameters)
-
-        return result
 
     def _Adouble(
         self, left: tuple, right: tuple, delta, pop_gates: Tuple[int, int] = None
@@ -655,6 +517,152 @@ class QAOA:
         )
 
 
+class QAOAResult:
+    def __init__(self) -> None:
+        self._message = None
+        self._optimizer_name = None
+        self._sucess = None
+        self._parameter_path = None
+        self._optimal_fun_value = None
+        self._num_fun_calls = None
+        self._num_steps = None
+        self._duration = None
+        self._optimal_state = None
+        self._optimal_parameters = None
+        self._orig_result = None
+
+    # orig_result is the result of the optimizer
+    @property
+    def orig_result(self):
+        """The orig_result property."""
+        return self._orig_result
+
+    @orig_result.setter
+    def orig_result(self, value):
+        self._orig_result = value
+
+    @property
+    def qaoa(self) -> QAOA:
+        """The qaoa
+        property."""
+        return self._qaoa
+
+    @qaoa.setter
+    def qaoa(self, value: QAOA):
+        self._qaoa = value
+
+    @property
+    def parameters(self) -> tuple[float]:
+        """The optimal_parameters property."""
+        return self._optimal_parameters
+
+    @parameters.setter
+    def parameters(self, value: tuple[float]):
+        self._optimal_parameters = value
+
+    @property
+    def state(self) -> Qobj():
+        """The optimal_state property."""
+        return self._optimal_state
+
+    @state.setter
+    def state(self, value: Qobj()):
+        self._optimal_state = value
+
+    @property
+    def duration(self) -> float:
+        """The duration property."""
+        return self._duration
+
+    @duration.setter
+    def duration(self, value: float):
+        self._duration = value
+
+    @property
+    def num_steps(self) -> int | None:
+        """The num_steps property."""
+        try:
+            return self._num_steps
+        except AttributeError:
+            return None
+
+    @num_steps.setter
+    def num_steps(self, value: int):
+        self._num_steps = value
+
+    @property
+    def num_fun_calls(self) -> int:
+        """The num_fun_calls property."""
+        return self._num_fun_calls
+
+    @num_fun_calls.setter
+    def num_fun_calls(self, value: int):
+        self._num_fun_calls = value
+
+    @property
+    def value(self) -> float:
+        """The optimal_fun_value property."""
+        return self._optimal_fun_value
+
+    @value.setter
+    def value(self, value: float):
+        self._optimal_fun_value = value
+
+    @property
+    def parameter_path(self) -> list[tuple[float]]:
+        """The parameter_path property."""
+        return self._parameter_path
+
+    @parameter_path.setter
+    def parameter_path(self, value: list[tuple[float]]):
+        self._parameter_path = value
+
+    @property
+    def success(self) -> bool:
+        """The sucess property."""
+        return self._sucess
+
+    @success.setter
+    def success(self, value: bool):
+        self._sucess = value
+
+    @property
+    def optimizer_name(self) -> str:
+        """The optimizer_name property."""
+        return self._optimizer_name
+
+    @optimizer_name.setter
+    def optimizer_name(self, value: str):
+        self._optimizer_name = value
+
+    # message
+    @property
+    def message(self) -> str:
+        """The message property."""
+        return self._message
+
+    @message.setter
+    def message(self, value: str) -> None:
+        self._message = value
+
+    def prob(self) -> float:
+        """The distance from the groundstate property."""
+        eigenstates = self.qaoa.H.eigenstates()
+        groundstates = eigenstates[1][np.where(eigenstates[0] == eigenstates[0][0])]
+        return max(abs(self.state.overlap(ground)) ** 2 for ground in groundstates)
+
+    def __str__(self):
+        return f"""
+        {self.optimizer_name} terminated with {'no' if not self.success else ''} sucess with message
+        \"{self.message}\"
+
+        optimal parameters:     {self.parameters}
+        optimal value:          {self.value}
+        number of fun calls:    {self.num_fun_calls}
+        number of steps:        {self.num_steps}
+        """
+
+
 def scipy_optimize(
     qaoa: QAOA,
     delta_0: tuple[float],
@@ -668,18 +676,20 @@ def scipy_optimize(
         method="COBYLA",
         options={"maxiter": max_iter},
     )
+    opt_result.orig_result = min_result
     dt = time() - t_0
+    opt_result.qaoa = qaoa
     opt_result.duration = dt
     opt_result.success = min_result.success
-    opt_result.optimal_parameters = min_result.x
+    opt_result.parameters = min_result.x
     opt_result.message = min_result.message
-    opt_result.optimal_fun_value = min_result.fun
+    opt_result.value = min_result.fun
     opt_result.num_fun_calls = min_result.nfev
     try:
         opt_result.num_steps = min_result.nit
     except AttributeError:
         pass
-    opt_result.optimal_state = qaoa.state(opt_result.optimal_parameters)
+    opt_result.state = qaoa.state(opt_result.parameters)
     opt_result.optimizer_name = "scipy_cobyla"
 
     return opt_result
@@ -799,7 +809,13 @@ def qaoa_lineq_tdvp_rhs(t: float, x: Tuple[float], qaoa: QAOA) -> np.ndarray:
 
 
 def tdvp_optimize_qaoa(
-    qaoa: QAOA, delta_0: tuple[float], Delta: float = 0.01, rhs_mode: str = "qaoa"
+    qaoa: QAOA,
+    delta_0: tuple[float],
+    Delta: float = 0.01,
+    rhs_mode: str = "qaoa",
+    int_mode: str = "RK45",
+    grad_tol: float = 1e-6,
+    max_iter: int = 1000,
 ) -> QAOAResult:  # rhs_mode: "qaoa", "lineq", "lineq_qaoa"
     """optimize an qaoa instance by tdvp for imaginary time evolution.
 
@@ -812,6 +828,7 @@ def tdvp_optimize_qaoa(
                                 "qaoa_lineq" uses the qaoa instance to compute the rhs, but does not invert the gram matrix.
                                 Instead it solves the linear equation system G_ijx_i = d_j E, where x_i is the time derivative
                                 of the parameters. Defaults to "qaoa".
+        int_mode (str, optional): Mode for solving the ODE. Possible values are "RK45", "RK23", "DOP853", "euler".
 
     Returns:
         QAOAResult: the result of the qaoa after optimization.
@@ -822,7 +839,7 @@ def tdvp_optimize_qaoa(
         def tdvp_rhs(t, x) -> NDArray:
             nonlocal rhs_step
             rhs_step += 1
-            print(f"rhs step {rhs_step}")
+            print(f"rhs step {rhs_step}", end="\r")
             return qaoa_tdvp_rhs(t, x, qaoa)
 
     elif rhs_mode == "gen":
@@ -830,7 +847,7 @@ def tdvp_optimize_qaoa(
         def tdvp_rhs(t, x) -> NDArray:
             nonlocal rhs_step
             rhs_step += 1
-            print(f"rhs step {rhs_step}")
+            print(f"rhs step {rhs_step}", end="\r")
             return gen_tdvp_rhs(t, x, qaoa)
 
     elif rhs_mode == "qaoa_lineq":
@@ -838,29 +855,58 @@ def tdvp_optimize_qaoa(
         def tdvp_rhs(t, x) -> NDArray:
             nonlocal rhs_step
             rhs_step += 1
-            print(f"rhs step {rhs_step}")
+            print(f"rhs step {rhs_step}", end="\r")
             return qaoa_lineq_tdvp_rhs(t, x, qaoa)
 
-    t_0 = process_time()
-    int_result = integrate.solve_ivp(
-        fun=tdvp_rhs, t_span=(0, Delta), y0=delta_0, method="RK45"
-    )
-    dt = process_time() - t_0  # time for integration
+    def termination_event(t, x) -> float:
+        return linalg.norm(qaoa.grad(x))
 
-    result = QAOAResult()  # create result object
-    result.success = int_result.success  # success of integration
-    result.optimal_parameters = tuple(par[-1] for par in int_result.y)  # last step
+    termination_event.terminal = True
+
+    match int_mode:
+        case "euler":
+            t_0 = process_time()
+            delta = delta_0
+            while linalg.norm(qaoa.grad(delta)) > grad_tol and rhs_step < max_iter:
+                delta = delta + Delta * tdvp_rhs(
+                    0, delta
+                )  # tdvp_rhs increases rhs_step by 1
+            dt = process_time() - t_0  # time for integration
+            result = QAOAResult()
+            result.orig_result = None
+            result.success = (
+                linalg.norm(qaoa.grad(delta)) < grad_tol
+            )  # success of integration
+            result.parameters = delta  # last step
+            result.message = f"Euler solver terminated with {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
+            result.num_fun_calls = rhs_step  # number of function calls
+
+        case _:
+            t_0 = process_time()
+            int_result = integrate.solve_ivp(
+                fun=tdvp_rhs,
+                t_span=(0, Delta),
+                y0=delta_0,
+                method=int_mode,
+                events=termination_event,
+                max_iter=max_iter,
+            )
+            dt = process_time() - t_0  # time for integration
+
+            result = QAOAResult()  # create result object
+            result.orig_result = int_result
+            result.success = int_result.success  # success of integration
+            result.parameters = tuple(par[-1] for par in int_result.y)  # last step
+            result.message = int_result.message  # message from the solver
+            result.num_fun_calls = int_result.nfev  # number of function calls
+
+    result.qaoa = qaoa
     result.duration = dt  # time for integration
-    result.message = int_result.message  # message from the solver
-    result.optimal_state = qaoa.state(result.optimal_parameters)  # final state
-    result.optimal_fun_value = qaoa.expectation(
-        result.optimal_state
+    result.num_steps = rhs_step  # number of steps
+    result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode."
+    result.state = qaoa.state(result.parameters)  # final state
+    result.value = qaoa.expectation(
+        result.parameters
     )  # expectation value of the optimal state
-    result.num_fun_calls = int_result.nfev  # number of function calls
-    try:
-        result.num_steps = rhs_step  # number of steps
-    except AttributeError:
-        pass
-    result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation"
 
     return result
