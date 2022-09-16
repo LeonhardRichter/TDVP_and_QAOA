@@ -393,27 +393,27 @@ class QAOA:
             A = self._Adouble
         elif grammode == "single":
             A = self._Asingle
-        if i <= p - 1 and j <= p - 1:
+        if i <= self.p - 1 and j <= self.p - 1:
             element = sum(
                 [
                     A(
-                        ([Gate("X", [l])], i % p, False),  # left side
-                        ([Gate("X", [k])], j % p, False),  # right side
+                        ([Gate("X", [l])], i % self.p, False),  # left side
+                        ([Gate("X", [k])], j % self.p, False),  # right side
                         delta,
                     )
                     for k, l in product(range(n), repeat=2)
                 ]
             )
 
-        if i <= p - 1 < j:
+        if i <= self.p - 1 < j:
             element = sum(
                 [
                     (qubo[l][l] + qj[l])
                     * A(
-                        ([Gate("X", [k])], i % p, False),
+                        ([Gate("X", [k])], i % self.p, False),
                         (
                             [Gate("Z", [l])],
-                            j % p,
+                            j % self.p,
                             True,
                         ),  # for the case that gamma was derivated: put a Z inbetween -> tilde=True
                         delta,
@@ -425,8 +425,8 @@ class QAOA:
                     2
                     * qubo[l][m]
                     * A(
-                        ([Gate("X", [k])], i % p, False),
-                        ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
+                        ([Gate("X", [k])], i % self.p, False),
+                        ([Gate("Z", [l]), Gate("Z", [m])], j % self.p, True),
                         delta,
                     )  # 2* is due to qubo being symmetric and not upper triangular
                     for k, l, m in product(range(n), repeat=3)
@@ -434,13 +434,13 @@ class QAOA:
                 ]
             )
             # for saving computations, the gram matrix must be hermetian anyways
-        if j <= p - 1 < i:
+        if j <= self.p - 1 < i:
             element = sum(
                 [
                     (qubo[l][l] + qj[l])
                     * A(
-                        ([Gate("Z", [l])], i % p, True),
-                        ([Gate("X", [k])], j % p, False),
+                        ([Gate("Z", [l])], i % self.p, True),
+                        ([Gate("X", [k])], j % self.p, False),
                         delta,
                     )
                     for k, l in product(range(n), repeat=2)
@@ -450,8 +450,8 @@ class QAOA:
                     2
                     * qubo[k][l]
                     * A(
-                        ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
-                        ([Gate("X", [m])], j % p, False),
+                        ([Gate("Z", [k]), Gate("Z", [l])], i % self.p, True),
+                        ([Gate("X", [m])], j % self.p, False),
                         delta,
                     )
                     # 2* is due to qubo being symmetric and not upper triangular AND that it does not matter where
@@ -461,15 +461,15 @@ class QAOA:
                 ]
             )
 
-        if i > p - 1 and j > p - 1:
+        if i > self.p - 1 and j > self.p - 1:
             element = (
                 sum(
                     [
                         qubo[k, k]
                         * (qubo[l, l] + qj[l])
                         * A(
-                            ([Gate("Z", [k])], i % p, True),
-                            ([Gate("Z", [l])], j % p, True),
+                            ([Gate("Z", [k])], i % self.p, True),
+                            ([Gate("Z", [l])], j % self.p, True),
                             delta,
                         )
                         for k, l in product(range(n), repeat=2)
@@ -481,8 +481,8 @@ class QAOA:
                         * qubo[k, l]
                         * (qubo[m, m] + qj[l])
                         * A(
-                            ([Gate("Z", [k]), Gate("Z", l)], i % p, True),
-                            ([Gate("Z", [m])], j % p, True),
+                            ([Gate("Z", [k]), Gate("Z", l)], i % self.p, True),
+                            ([Gate("Z", [m])], j % self.p, True),
                             delta,
                         )
                         for k, l, m in product(range(n), repeat=3)
@@ -495,8 +495,8 @@ class QAOA:
                         * (qubo[k, k] + qj[k])
                         * qubo[l, m]
                         * A(
-                            ([Gate("Z", [k])], i % p, True),
-                            ([Gate("Z", [l]), Gate("Z", [m])], j % p, True),
+                            ([Gate("Z", [k])], i % self.p, True),
+                            ([Gate("Z", [l]), Gate("Z", [m])], j % self.p, True),
                             delta,
                         )
                         for k, l, m in product(range(n), repeat=3)
@@ -510,8 +510,8 @@ class QAOA:
                         * 2
                         * qubo[m, n]
                         * A(
-                            ([Gate("Z", [k]), Gate("Z", [l])], i % p, True),
-                            ([Gate("Z", [m]), Gate("Z", [n])], j % p, True),
+                            ([Gate("Z", [k]), Gate("Z", [l])], i % self.p, True),
+                            ([Gate("Z", [m]), Gate("Z", [n])], j % self.p, True),
                             delta,
                         )
                         for k, l, m, n in product(range(n), repeat=4)
@@ -538,7 +538,7 @@ class QAOA:
         return np.matrix(
             parallel_map(
                 task=self._Gij,
-                values=list(product(range(2 * p), repeat=2)),
+                values=list(product(range(2 * self.p), repeat=2)),
                 task_args=(delta, gram_mode),
             )
         ).reshape(2 * self.p, 2 * self.p)
@@ -832,7 +832,7 @@ def tdvp_optimize_qaoa(
             nonlocal rhs_step
             rhs_step += 1
             print(f"rhs step {rhs_step}")
-            return gen_tdvp_rhs(t, x)
+            return gen_tdvp_rhs(t, x, qaoa)
 
     elif rhs_mode == "qaoa_lineq":
 
@@ -865,21 +865,6 @@ def tdvp_optimize_qaoa(
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation"
 
     return result
-
-
-# %%
-p = 2
-qubo = np.array(
-    [
-        [0, 2.0, 1.0, 1.0, 0.0, 0.0],
-        [1, 1.0, 2.0, 0.0, 1.0, 0.0],
-        [2, 1.0, 0.0, 3.0, 1.0, 1.0],
-        [3, 0.0, 1.0, 1.0, 3.0, 1.0],
-        [4, 0.0, 0.0, 1.0, 1.0, 2.0],
-    ]
-)
-qaoa = QAOA(qubo=qubo, p=p)
-delta = tuple(0.1 for _ in range(2 * p))
 
 
 # %%
