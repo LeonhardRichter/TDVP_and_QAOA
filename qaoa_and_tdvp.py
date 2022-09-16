@@ -864,22 +864,3 @@ def tdvp_optimize_qaoa(
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation"
 
     return result
-
-
-# %%
-my_p = 2
-my_qubo = np.array(
-    [
-        [0, 2.0, 1.0, 1.0, 0.0, 0.0],
-        [1, 1.0, 2.0, 0.0, 1.0, 0.0],
-        [2, 1.0, 0.0, 3.0, 1.0, 1.0],
-        [3, 0.0, 1.0, 1.0, 3.0, 1.0],
-        [4, 0.0, 0.0, 1.0, 1.0, 2.0],
-    ]
-)
-my_qaoa = QAOA(qubo=my_qubo, p=my_p)
-my_delta = tuple(0.1 for _ in range(2 * my_p))
-
-
-# %%
-my_gram = my_qaoa.gram(my_delta)
