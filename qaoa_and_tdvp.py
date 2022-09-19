@@ -153,21 +153,61 @@ class QAOA:
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
-    # define the whole qaoa circuit
-    def circuit(self, delta: tuple[float]) -> QubitCircuit:
-        assert len(delta) == 2 * self.p
-        p = self.p
-        n = self.n
-        betas = delta[:p]
-        gammas = delta[p : 2 * p]
+    # TODO: change to just using one circuit method. Opt in for inserting gates inbetween qaoa blocks (U_H or U_B)
+    # and deleting entire qaoa layers (U_H U_B). This
 
+    # define the whole qaoa circuit
+    def circuit(
+        self,
+        delta: tuple[float],
+        insert_gates: None | Iterable[Gate] = None,
+        at_layer: None | int = None,
+        inbetween: None | bool = None,
+        pop_layers: None | Tuple[int, int] = None,
+    ) -> QubitCircuit:
+        assert len(delta) == 2 * self.p
+        if pop_layers is not None:
+            assert pop_layers[0]> at_layer
+            
+        p, n = self.p, self.n
+        betas, gammas = delta[:p], delta[p : 2 * p]
+        
         # define mixer circuit
         qc = QubitCircuit(n, user_gates={"RZZ": rzz})
-
-        for i in range(p):
+        layer = 0
+        # add the layers before the layer to be inserted
+        for i in range(0,at_layer):
+            if pop_layers is not None:
+                if i in range(*pop_layers):
+                    continue
             qc.add_circuit(self._qcH(gammas[i]))
             qc.add_circuit(self._qcB(betas[i]))
-
+            layer += 1
+        
+        # insert gates to be inserted inbetween qaoa blocks
+        # this way saves a few if statements
+        match inbetween:
+            case True:
+                qc.add_circuit(self._qcH(gammas[i]))
+                for gate in insert_gates:
+                    qc.add_gate(gate)
+                qc.add_circuit(self._qcB(betas[i]))
+                layer+=1
+            case False:
+                qc.add_circuit(self._qcH(gammas[i]))
+                qc.add_circuit(self._qcB(betas[i]))
+                for gate in insert_gates:
+                    qc.add_gate(gate)
+                layer+=1
+            case None:
+                pass
+            
+        # add the rest of the layers
+        for i in range(at_layer+1,p):
+            qc.add_circuit(self._qcH(gammas[i]))
+            qc.add_circuit(self._qcB(betas[i]))
+            layer+=1
+        print('# of layers: ', layer)
         return qc
 
     def circuitDiff_old(
@@ -227,6 +267,7 @@ class QAOA:
             QubitCircuit: the quantum circuit for this qaoa insertion.
         """
         qaoa = self.circuit(delta)  # the usual qaoa circuit
+        qaoa.user_gates = {"RZZ": rzz}
         if pop_gates is not None:
             qaoa.remove_gate_or_measurement(
                 *pop_gates
@@ -717,7 +758,7 @@ def gen_grad(
     dpsi = finitediff(qaoa.state)
     p = int(len(pars))
     out = np.matrix(
-        (dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(p)
+        [(dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(p)]
     )
     return out
 
@@ -805,7 +846,7 @@ def tdvp_optimize_qaoa(
     Delta: float = 0.01,
     rhs_mode: str = "qaoa",
     int_mode: str = "RK45",
-    grad_tol: float = 1e-6,
+    grad_tol: float = 1e-3,
     max_iter: int = 1000,
 ) -> QAOAResult:  # rhs_mode: "qaoa", "lineq", "lineq_qaoa"
     """optimize an qaoa instance by tdvp for imaginary time evolution.
@@ -849,20 +890,29 @@ def tdvp_optimize_qaoa(
             print(f"rhs step {rhs_step}", end="\r")
             return qaoa_lineq_tdvp_rhs(t, x, qaoa)
 
-    def termination_event(t, x) -> float:
-        return linalg.norm(qaoa.grad(x))
+    def tdvp_terminal(t, x) -> float:
+        return (
+            linalg.norm(tdvp_rhs(t, x)) - grad_tol
+        )  # stop if the norm of the rhs is smaller than grad_tol
 
-    termination_event.terminal = True
+    # def scipy_max_steps(t, x) -> int:
+    #     return max_iter - rhs_step
+
+    # scipy_max_steps.terminal = True
+    # scipy_max_steps.direction = -1
 
     match int_mode:
         case "euler":
             t_0 = process_time()
             delta = delta_0
-            while linalg.norm(qaoa.grad(delta)) > grad_tol and rhs_step < max_iter:
-                delta = delta + Delta * tdvp_rhs(
-                    0, delta
-                )  # tdvp_rhs increases rhs_step by 1
+            # perform the solving loop
+            while rhs_step < max_iter:
+                rhs = tdvp_rhs(0, delta)  # tdvp_rhs increases rhs_step by 1
+                delta = delta + Delta * rhs
+                if linalg.norm(rhs) < grad_tol:  # break when gradient is small enough
+                    break
             dt = process_time() - t_0  # time for integration
+            # save the result
             result = QAOAResult()
             result.orig_result = None
             result.success = (
@@ -875,22 +925,25 @@ def tdvp_optimize_qaoa(
 
         case _:
             t_0 = process_time()
+            # solve the ODE
             int_result = integrate.solve_ivp(
                 fun=tdvp_rhs,
                 t_span=(0, Delta),
                 y0=delta_0,
                 method=int_mode,
-                # events=termination_event,
+                events=tdvp_terminal,
+                atol=1e-3,
+                rtol=1e-2,
             )
             dt = process_time() - t_0  # time for integration
-
+            # save the result
             result = QAOAResult()  # create result object
             result.orig_result = int_result
             result.success = int_result.success  # success of integration
             result.parameters = tuple(par[-1] for par in int_result.y)  # last step
             result.message = int_result.message  # message from the solver
             result.num_fun_calls = int_result.nfev  # number of function calls
-
+    # save the rest of the result, same for both sovlers
     result.qaoa = qaoa
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
