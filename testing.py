@@ -18,11 +18,10 @@ nx.draw(instance.graph, with_labels=True)
 
 qaoa = QAOA(qubo=instance.qubo, p=p)
 delta = tuple(1 for _ in range(2 * p))
-qaoa.circuit(delta).gates
 
 # gram = qaoa.gram(delta)
 #%%
-# res = tdvp_optimize_qaoa(qaoa, delta, 0.1, int_mode="euler")
+res = tdvp_optimize_qaoa(qaoa, delta, 1, int_mode="RK45")
 
 # # %%
 # len(qaoa.circuit(delta).gates) == 2 * p

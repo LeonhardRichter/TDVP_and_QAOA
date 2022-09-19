@@ -1,5 +1,4 @@
 # vscode-fold=2
-# %%
 from time import time as time, process_time
 from itertools import combinations, product, combinations_with_replacement
 from typing import Callable, Tuple, Iterable
@@ -19,19 +18,6 @@ from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
 from quantum import *
-
-
-# %%
-# Define general expressions and objects
-
-
-# %%
-# Define qaoa class
-def rzz(arg_value) -> Qobj:
-    return tensor(rz(arg_value), rz(-arg_value))
-
-
-# %%
 
 
 class QAOA:
@@ -127,7 +113,6 @@ class QAOA:
         self._n = value
 
     ##############################################################################################
-
     def _qcHqubo(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = {"RZZ": rzz}
@@ -139,7 +124,6 @@ class QAOA:
                 arg_label=f"2*{round(gamma, 2)}*(Q_{{{j}{j}}}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
-            print("moin")
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
@@ -176,10 +160,9 @@ class QAOA:
         n = self.n
         betas = delta[:p]
         gammas = delta[p : 2 * p]
-        print(gammas)
 
         # define mixer circuit
-        qc = QubitCircuit(n)
+        qc = QubitCircuit(n, user_gates={"RZZ": rzz})
 
         for i in range(p):
             qc.add_circuit(self._qcH(gammas[i]))
@@ -206,7 +189,7 @@ class QAOA:
         p = self.p
         assert len(delta) == 2 * p
 
-        qc = QubitCircuit(n)
+        qc = QubitCircuit(n, user_gates={"RZZ": rzz})
         match tilde:
             case True:
                 for layer in range(p):
@@ -260,7 +243,11 @@ class QAOA:
         return expect(self.H, self.state(delta))
 
     def _Adouble(
-        self, left: tuple, right: tuple, delta, pop_gates: Tuple[int, int] = None
+        self,
+        left: tuple[tuple[Gate], int],
+        right: tuple[tuple[Gate], int],
+        delta,
+        pop_gates: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
         Each of those is a QAOA state with some operators inserted at a certain position
@@ -279,7 +266,11 @@ class QAOA:
         return (left_state.dag() * right_state)[0, 0]
 
     def _Asingle(
-        self, left: tuple, right: tuple, delta, pop_gates: Tuple[int, int] = None
+        self,
+        left: tuple[tuple[Gate], int],
+        right: tuple[tuple[Gate], int],
+        delta,
+        pop_gates: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the combined circuit of left and right side and run it on input state.
 
@@ -696,7 +687,7 @@ def scipy_optimize(
 
 
 def finitediff(
-    func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-10
+    func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-6
 ) -> Callable[[tuple[float]], list[Qobj]]:
     def dfunc(params) -> list:
         params = tuple(params)
@@ -726,7 +717,7 @@ def gen_grad(
     dpsi = finitediff(qaoa.state)
     p = int(len(pars))
     out = np.matrix(
-        [(dpsi(pars)[k].dag() * qaoa.H * qaoa.state(pars))[0, 0] for k in range(p)]
+        (dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(p)
     )
     return out
 
@@ -745,7 +736,7 @@ def gen_gram(pars: tuple[float], qaoa: QAOA) -> np.matrix:
     num_pars = int(len(pars))
     return np.matrix(
         [
-            [((dpsi(pars)[j]).dag() * dpsi(pars)[k])[0, 0] for k in range(num_pars)]
+            [((dpsi(pars)[j]).overlap(dpsi(pars)[k])) for k in range(num_pars)]
             for j in range(num_pars)
         ]
     )  # order of j,k must be correct -> j should be rows, k should be columns
@@ -878,7 +869,8 @@ def tdvp_optimize_qaoa(
                 linalg.norm(qaoa.grad(delta)) < grad_tol
             )  # success of integration
             result.parameters = delta  # last step
-            result.message = f"Euler solver terminated with {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
+            result.message = f"Euler solver terminated with \
+            {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
             result.num_fun_calls = rhs_step  # number of function calls
 
         case _:
@@ -888,8 +880,7 @@ def tdvp_optimize_qaoa(
                 t_span=(0, Delta),
                 y0=delta_0,
                 method=int_mode,
-                events=termination_event,
-                max_iter=max_iter,
+                # events=termination_event,
             )
             dt = process_time() - t_0  # time for integration
 
@@ -903,7 +894,8 @@ def tdvp_optimize_qaoa(
     result.qaoa = qaoa
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
-    result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode."
+    result.optimizer_name = f"tdvp_optimizer with \
+        {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode."
     result.state = qaoa.state(result.parameters)  # final state
     result.value = qaoa.expectation(
         result.parameters
