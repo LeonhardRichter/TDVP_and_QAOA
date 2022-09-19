@@ -1,12 +1,8 @@
+from itertools import permutations
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from qutip import sigmaz, sigmax, basis, tensor, qeye, Qobj
 from qutip.qip.operations import expand_operator, rz
-
-import numpy as np
-
-
-from numpy.typing import ArrayLike, NDArray
-
-from itertools import permutations
 
 
 def sz(n: int, i: int) -> Qobj:
@@ -17,8 +13,8 @@ def sx(n: int, i: int) -> Qobj:
     return expand_operator(sigmax(), n, i, [2 for _ in range(n)])
 
 
-# def rzz(arg_value) -> Qobj:
-#     return tensor(rz(arg_value), rz(-arg_value))
+def rzz(arg_value) -> Qobj:
+    return tensor(rz(arg_value), rz(-arg_value))
 
 
 minus = (basis(2, 0) - basis(2, 1)).unit()
