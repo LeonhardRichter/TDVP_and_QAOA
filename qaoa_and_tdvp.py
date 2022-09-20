@@ -130,12 +130,6 @@ class QAOA:
                 arg_value=2 * gamma * self.qubo[j][k],
                 arg_label=f"2*{round(gamma, 2)}*Q_{{{j}{k}}}",
             )
-            # qc.add_gate(
-            #     "RZZ",
-            #     targets=[j, k],
-            #     arg_value=2 * gamma * self.qubo[j, k],
-            #     arg_label=f"2*{round(gamma, 2)}*Q_{{{j}{k}}}",
-            # )
         return qc
 
     # define the qaoa gates as QubitCircuits
@@ -150,6 +144,7 @@ class QAOA:
 
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
+        qc.user_gates = {"RZZ": rzz}
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
@@ -165,116 +160,121 @@ class QAOA:
         inbetween: None | bool = None,
         pop_layers: None | Tuple[int, int] = None,
     ) -> QubitCircuit:
-        assert len(delta) == 2 * self.p
-        if pop_layers is not None:
-            assert pop_layers[0]> at_layer
-            
         p, n = self.p, self.n
         betas, gammas = delta[:p], delta[p : 2 * p]
-        
+
+        assert len(delta) == 2 * p
+        if at_layer is None:
+            at_layer = p
+        if pop_layers is not None:
+            assert (
+                pop_layers[0] > at_layer
+            ), "can't pop layers before the inserted layer"
+
         # define mixer circuit
-        qc = QubitCircuit(n, user_gates={"RZZ": rzz})
+        qc = QubitCircuit(n)
+        qc.user_gates = {"RZZ": rzz}
         layer = 0
         # add the layers before the layer to be inserted
-        for i in range(0,at_layer):
-            if pop_layers is not None:
-                if i in range(*pop_layers):
-                    continue
-            qc.add_circuit(self._qcH(gammas[i]))
-            qc.add_circuit(self._qcB(betas[i]))
+        while layer < at_layer:
+            qc.add_circuit(self._qcH(gammas[layer]))
+            qc.add_circuit(self._qcB(betas[layer]))
             layer += 1
-        
-        # insert gates to be inserted inbetween qaoa blocks
-        # this way saves a few if statements
-        match inbetween:
-            case True:
-                qc.add_circuit(self._qcH(gammas[i]))
-                for gate in insert_gates:
-                    qc.add_gate(gate)
-                qc.add_circuit(self._qcB(betas[i]))
-                layer+=1
-            case False:
-                qc.add_circuit(self._qcH(gammas[i]))
-                qc.add_circuit(self._qcB(betas[i]))
-                for gate in insert_gates:
-                    qc.add_gate(gate)
-                layer+=1
-            case None:
-                pass
-            
-        # add the rest of the layers
-        for i in range(at_layer+1,p):
-            qc.add_circuit(self._qcH(gammas[i]))
-            qc.add_circuit(self._qcB(betas[i]))
-            layer+=1
-        print('# of layers: ', layer)
+        if layer < p:
+            # insert gates to be inserted inbetween qaoa blocks
+            # this way saves a few if statements
+            match inbetween:
+                case True:
+                    qc.add_circuit(self._qcH(gammas[layer]))
+                    for gate in insert_gates:
+                        qc.add_gate(gate)
+                    qc.add_circuit(self._qcB(betas[layer]))
+                    layer += 1
+                case False:
+                    qc.add_circuit(self._qcH(gammas[layer]))
+                    qc.add_circuit(self._qcB(betas[layer]))
+                    for gate in insert_gates:
+                        qc.add_gate(gate)
+                    layer += 1
+                case None:
+                    qc.add_circuit(self._qcH(gammas[layer]))
+                    qc.add_circuit(self._qcB(betas[layer]))
+
+            # add the rest of the layers
+            while layer < p:
+                if pop_layers is not None:
+                    if layer in range(*pop_layers):
+                        continue
+                qc.add_circuit(self._qcH(gammas[layer]))
+                qc.add_circuit(self._qcB(betas[layer]))
+                layer += 1
         return qc
 
-    def circuitDiff_old(
-        self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
-    ) -> QubitCircuit:
-        """Compute the qaoa circuit with some gates inserted at a certain position.
+    # def circuitDiff_old(
+    #     self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
+    # ) -> QubitCircuit:
+    #     """Compute the qaoa circuit with some gates inserted at a certain position.
 
-        Args:
-            delta (tuple): point ot look at.
-            opers (list[Gate]): gates to insert
-            i (int): qaoa layer for the gates to be inserted at
-            tilde (bool, optional): Type of the insertion. If set to True, the gates are inserted inbetween H and B.
-                                    If set to False, the gates are inserted after B. Defaults to False.
+    #     Args:
+    #         delta (tuple): point ot look at.
+    #         opers (list[Gate]): gates to insert
+    #         i (int): qaoa layer for the gates to be inserted at
+    #         tilde (bool, optional): Type of the insertion. If set to True, the gates are inserted inbetween H and B.
+    #                                 If set to False, the gates are inserted after B. Defaults to False.
 
-        Returns:
-            QubitCircuit: the quantum circuit for this qaoa insertion.
-        """
-        n = self.n
-        p = self.p
-        assert len(delta) == 2 * p
+    #     Returns:
+    #         QubitCircuit: the quantum circuit for this qaoa insertion.
+    #     """
+    #     n = self.n
+    #     p = self.p
+    #     assert len(delta) == 2 * p
 
-        qc = QubitCircuit(n, user_gates={"RZZ": rzz})
-        match tilde:
-            case True:
-                for layer in range(p):
-                    qc.add_circuit(self._qcH(delta[i + p]))
-                    if layer == i:
-                        for oper in opers:
-                            qc.add_gate(oper)
-                    qc.add_circuit(self._qcB(delta[i]))
-            case False:
-                for layer in range(p):
-                    qc.add_circuit(self._qcH(delta[i + p]))
-                    qc.add_circuit(self._qcB(delta[i]))
-                    if layer == i:
-                        for oper in opers:
-                            qc.add_gate(oper)
-        return qc
+    #     qc = QubitCircuit(n, user_gates={"RZZ": rzz})
+    #     match tilde:
+    #         case True:
+    #             for layer in range(p):
+    #                 qc.add_circuit(self._qcH(delta[i + p]))
+    #                 if layer == i:
+    #                     for oper in opers:
+    #                         qc.add_gate(oper)
+    #                 qc.add_circuit(self._qcB(delta[i]))
+    #         case False:
+    #             for layer in range(p):
+    #                 qc.add_circuit(self._qcH(delta[i + p]))
+    #                 qc.add_circuit(self._qcB(delta[i]))
+    #                 if layer == i:
+    #                     for oper in opers:
+    #                         qc.add_gate(oper)
+    #     return qc
 
-    def circuitDiff(
-        self,
-        delta,
-        gates: Iterable[Gate],
-        position: int,
-        pop_gates: Tuple[int, int] = None,
-    ) -> QubitCircuit:
-        """Compute the qaoa circuit with some gates inserted at a certain position, and some gates removed.
+    # def circuitDiff(
+    #     self,
+    #     delta,
+    #     gates: Iterable[Gate],
+    #     position: int,
+    #     pop_gates: Tuple[int, int] = None,
+    # ) -> QubitCircuit:
+    #     """Compute the qaoa circuit with some gates inserted at a certain position, and some gates removed.
 
-        Args:
-            delta (_type_): point ot look at.
-            gates (Iterable[Gate]): gates to insert
-            position (int): gate index for the gates to be inserted at
-            pop_gates (Tuple[int, int], optional): Gates to be removed. IMPORTANT: These gates may only be at higher indices than the inserted ones.
-            Otherwise the indexing will go wrong. Defaults to None.
+    #     Args:
+    #         delta (_type_): point ot look at.
+    #         gates (Iterable[Gate]): gates to insert
+    #         position (int): gate index for the gates to be inserted at
+    #         pop_gates (Tuple[int, int], optional): Gates to be removed. IMPORTANT: These gates may only be at higher indices than the inserted ones.
+    #         Otherwise the indexing will go wrong. Defaults to None.
 
-        Returns:
-            QubitCircuit: the quantum circuit for this qaoa insertion.
-        """
-        qaoa = self.circuit(delta)  # the usual qaoa circuit
-        qaoa.user_gates = {"RZZ": rzz}
-        if pop_gates is not None:
-            qaoa.remove_gate_or_measurement(
-                *pop_gates
-            )  # possiblity to remove gates, do this before inserting new ones, otherwise the indexing will be wrong
-        for gate in gates:  # for each given gate, insert it at the given position
-            qaoa.add_gate(gate, index=[position])
-        return qaoa
+    #     Returns:
+    #         QubitCircuit: the quantum circuit for this qaoa insertion.
+    #     """
+    #     qaoa = self.circuit(delta)  # the usual qaoa circuit
+    #     qaoa.user_gates = {"RZZ": rzz}
+    #     if pop_gates is not None:
+    #         qaoa.remove_gate_or_measurement(
+    #             *pop_gates
+    #         )  # possiblity to remove gates, do this before inserting new ones, otherwise the indexing will be wrong
+    #     for gate in gates:  # for each given gate, insert it at the given position
+    #         qaoa.add_gate(gate, index=[position])
+    #     return qaoa
 
     def state(self, delta: tuple[float]) -> Qobj:
         return self.circuit(delta).run(self.mixer_ground)
@@ -285,46 +285,46 @@ class QAOA:
 
     def _Adouble(
         self,
-        left: tuple[tuple[Gate], int],
-        right: tuple[tuple[Gate], int],
+        left: tuple[tuple[Gate], int, bool],
+        right: tuple[tuple[Gate], int, bool],
         delta,
-        pop_gates: Tuple[int, int] = None,
+        pop_layers: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
         Each of those is a QAOA state with some operators inserted at a certain position
 
         Args:
-            left  (tuple): (left_gates:tuple[Gate],left_pos:int) left_gates is the list of operators to insert, left_pos is the gate index
-                            to insert at
-            right (tuple): (right_gates:tuple[Gate],right_pos:int) see left
+            left  (tuple): (left_gates:tuple[Gate],left_layer:int, inbetween) left_gates is the list of operators to insert, left_pos is the layer index
+                            to insert at, inbetween determines whether the gates are inserted inbetween H and B or after B.
+            right (tuple): (right_gates:tuple[Gate],right_layer:int, inbetween) see left
         """
-        left_state = self.circuitDiff(delta, *left, pop_gates=pop_gates).run(
+        left_state = self.circuit(delta, *left, pop_layers=pop_layers).run(
             self.mixer_ground
         )
-        right_state = self.circuitDiff(delta, *right, pop_gates=pop_gates).run(
+        right_state = self.circuit(delta, *right, pop_layers=pop_layers).run(
             self.mixer_ground
         )
-        return (left_state.dag() * right_state)[0, 0]
+        return left_state.overlap(right_state)
 
     def _Asingle(
         self,
-        left: tuple[tuple[Gate], int],
-        right: tuple[tuple[Gate], int],
+        left: tuple[tuple[Gate], int, bool],
+        right: tuple[tuple[Gate], int, bool],
         delta,
-        pop_gates: Tuple[int, int] = None,
+        pop_layers: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the combined circuit of left and right side and run it on input state.
 
         Args:
-            left  (tuple): (left_gates:tuple[Gate],left_pos:int) positions are gate-wise not qaoa-layer wise
-            right (tuple): (right_gates:tuple[Gate],right_pos:int)
+            left  (tuple): (left_gates:tuple[Gate],left_pos:int,inbetween) positions are layer-wise
+            right (tuple): (right_gates:tuple[Gate],right_pos:int,inbetween)
         """
         m_delta = tuple(-t for t in delta)  # negative parameters
-        qc = self.circuitDiff(delta, *right, pop_gates=pop_gates)
+        qc = self.circuit(delta, *right, pop_layers=pop_layers)
         qc.add_circuit(
-            self.circuitDiff(m_delta, *left, pop_gates=pop_gates).reverse_circuit()
+            self.circuit(m_delta, *left, pop_layers=pop_layers).reverse_circuit()
         )  # negative of the delta parameters gives in this case the adjoint gates
-        return (self.mixer_ground.dag() * qc.run(self.mixer_ground))[0, 0]
+        return self.mixer_ground.overlap(qc.run(self.mixer_ground))
 
     def _Gij(self, ij: tuple[int], delta: tuple[float]) -> np.complex_:
         """compute one summand of G_ij, i.e. decide in which part of the matrix the indices lie and compute the corresponding element.
@@ -343,16 +343,13 @@ class QAOA:
         if i <= p - 1 and j <= p - 1:  # upper left corner of the matrix
             element = sum(
                 A(
-                    left=(
-                        [Gate("X", [l])],
-                        2 * i + 2,
-                    ),  # positions are handpicked. Each Qaoa layer has 2 gates, the first one is H, the second one is B. For insertion after B, the position is 2*i+2, for insertion inbetween H and B, the position is 2*i+1
-                    right=([Gate("X", [k])], 2 * j + 2),  # same as above
                     delta=delta,
+                    left=([Gate("X", [l])], i, False),  # insert X at layer i
+                    right=([Gate("X", [k])], j, False),  # same as above
                     # remove gates that will cancel each other out due to the adjoint circuit. This only works when i<=j! That is handled by self.gram only computing the upper triangle with this method
-                    pop_gates=(
-                        2 * j + 1,
-                        2 * p,
+                    pop_layers=(
+                        j + 1,
+                        p,
                     ),
                 )
                 for k, l in product(
@@ -364,28 +361,27 @@ class QAOA:
             element = sum(
                 (qubo[l][l] + qj[l])  # the linear qubo coefficients coming from Z
                 * A(
-                    left=([Gate("X", [k])], 2 * i + 2),  # insert X after B
-                    right=([Gate("Z", [l])], 2 * j + 1),  # insert Z inbetween H and B
+                    left=([Gate("X", [k])], i, False),  # insert X after B
+                    right=([Gate("Z", [l])], j, True),  # insert Z inbetween H and B
                     delta=delta,
-                    pop_gates=(2 * j + 1, 2 * p),
+                    pop_layers=(j + 1, p),
                 )
                 for k, l in product(range(n), repeat=2)
             ) + sum(
                 2  # 2* is due to qubo being symmetric and not upper triangular
                 * qubo[l][m]  # the quadratic qubo coefficients coming from ZZ
                 * A(
-                    left=([Gate("X", [k])], 2 * i + 2),  # insert X after B
+                    left=([Gate("X", [k])], i, False),  # insert X after B
                     right=(
                         [Gate("Z", [l]), Gate("Z", [m])],
-                        2 * j + 1,
+                        j,
+                        True,
                     ),  # insert two Z's inbetween H and B
                     delta=delta,
-                    pop_gates=(
-                        2 * j + 1,
-                        2 * p,
+                    pop_layers=(
+                        j + 1,
+                        p,
                     ),  # remove gates that will cancel each other out due to the adjoint circuit.
-                    # 2*j+1 is the positions of the inserted gate with highest index.
-                    # As removement is done before insertion this is the first  gate that can be removed on both sides.
                 )
                 for k, (l, m) in product(
                     range(n), combinations(range(n), r=2)
@@ -402,10 +398,10 @@ class QAOA:
                         qubo[l, l] + qj[l]
                     )  # the linear qubo coefficients coming from Z_l
                     * A(
-                        left=([Gate("Z", [k])], 2 * i + 1),  # insert Z after H
-                        right=([Gate("Z", [l])], 2 * j + 1),  # insert Z after H
+                        left=([Gate("Z", [k])], i + 1, True),  # insert Z after H
+                        right=([Gate("Z", [l])], j + 1, True),  # insert Z after H
                         delta=delta,
-                        pop_gates=(2 * j + 1, 2 * p),
+                        pop_layers=(j + 1, p),
                     )
                     for k, l in product(
                         range(n), repeat=2
@@ -420,11 +416,12 @@ class QAOA:
                     * A(
                         left=(
                             [Gate("Z", [k]), Gate("Z", l)],
-                            2 * i + 1,
+                            i,
+                            True,
                         ),  # insert two Z's after H
-                        right=([Gate("Z", [m])], 2 * j + 1),  # insert Z after H
+                        right=([Gate("Z", [m])], j, True),  # insert Z after H
                         delta=delta,
-                        pop_gates=(2 * j + 1, 2 * p),
+                        pop_layers=(j + 1, p),
                     )
                     for (k, l), m in product(
                         combinations(range(n), r=2), range(n)
@@ -437,13 +434,14 @@ class QAOA:
                     )  # the linear qubo coefficients coming from Z_k
                     * qubo[l, m]  # the quadratic qubo coefficients coming from Z_l Z_m
                     * A(
-                        left=([Gate("Z", [k])], 2 * i + 1),  # insert Z after H
+                        left=([Gate("Z", [k])], i, True),  # insert Z after H
                         right=(
                             [Gate("Z", [l]), Gate("Z", [m])],
-                            2 * j + 1,
+                            j,
+                            True,
                         ),  # insert two Z's after H
                         delta=delta,
-                        pop_gates=(2 * j + 1, 2 * p),
+                        pop_layers=(j + 1, p),
                     )
                     for k, (l, m) in product(
                         range(n), combinations(range(n), r=2)
@@ -457,14 +455,16 @@ class QAOA:
                     * A(
                         left=(
                             [Gate("Z", [k]), Gate("Z", [l])],
-                            2 * i + 1,
+                            i,
+                            True,
                         ),  # insert two Z's after H
                         right=(
                             [Gate("Z", [m]), Gate("Z", [n])],
-                            2 * j + 1,
+                            j,
+                            True,
                         ),  # insert two Z's after H
                         delta=delta,
-                        pop_gates=(2 * j + 1, 2 * p),
+                        pop_layers=(j + 1, p),
                     )
                     for (k, l), (m, n) in product(
                         combinations(range(3), r=2), repeat=2
@@ -511,8 +511,8 @@ class QAOA:
         if i <= self.p - 1:
             # compute the left state <d_i Psi| = (sum_i(U_i)|psi>)
             left_state = sum(  # the sum over all parts of B
-                self.circuitDiff(
-                    delta, [Gate("X", [k])], 2 * i + 2
+                self.circuit(
+                    delta, [Gate("X", [k])], i, False
                 ).run(  # insert X after B, positions are handpicked and correspond to gate indices not qaoa layers
                     self.mixer_ground
                 )
@@ -526,7 +526,7 @@ class QAOA:
                     self.qubo[k, k] + self.qj[k]
                 )  # the linear qubo coefficients coming from Z_k
                 * (
-                    self.circuitDiff(delta, [Gate("Z", [k])], 2 * i + 1).run(
+                    self.circuit(delta, [Gate("Z", [k])], i, True).run(
                         self.mixer_ground
                     )
                 )
@@ -535,13 +535,13 @@ class QAOA:
                 2  # factor of two because qubo is symmetric and we only add each gate combination once
                 * self.qubo[k, l]  # the quadratic qubo coefficients coming from Z_k Z_l
                 * (
-                    self.circuitDiff(
-                        delta, [Gate("Z", [k]), Gate("Z", [l])], 2 * i + 1
-                    ).run(self.mixer_ground)
+                    self.circuit(delta, [Gate("Z", [k]), Gate("Z", [l])], i, True).run(
+                        self.mixer_ground
+                    )
                 )
                 for k, l in combinations(range(self.n), 2)
             )
-            return (left_state.dag() * self.H * self.state(delta))[0, 0]
+            return left_state.overlap(self.H * self.state(delta))
 
     def grad(self, delta: tuple[float], **kwargs) -> NDArray:
         return np.matrix(

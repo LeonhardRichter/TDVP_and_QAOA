@@ -24,5 +24,3 @@ delta = tuple(1 for _ in range(2 * p))
 res = tdvp_optimize_qaoa(
     qaoa, delta, 2, int_mode="RK45", rhs_mode="qaoa", grad_tol=0.05, max_iter=300
 )
-
-# %%
