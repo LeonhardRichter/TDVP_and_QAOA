@@ -161,8 +161,8 @@ class QAOA:
         pop_layers: None | Tuple[int, int] = None,
     ) -> QubitCircuit:
         p, n = self.p, self.n
-        betas, gammas = delta[:p], delta[p : 2 * p]
 
+        # assertions
         assert len(delta) == 2 * p
         if at_layer is None:
             at_layer = p
@@ -171,36 +171,35 @@ class QAOA:
                 pop_layers[0] > at_layer
             ), "can't pop layers before the inserted layer"
 
-        # define mixer circuit
+        # init circuit
         qc = QubitCircuit(n)
         qc.user_gates = {"RZZ": rzz}
         layer = 0
         # add the layers before the layer to be inserted
+        # note that if no at_layer is given, this will run until layer == p
         while layer < at_layer:
-            qc.add_circuit(self._qcH(gammas[layer]))
-            qc.add_circuit(self._qcB(betas[layer]))
+            qc.add_circuit(self._qcH(delta[layer + p]))
+            qc.add_circuit(self._qcB(delta[layer]))
             layer += 1
+        # layer == at_layer
+        # when not at the end of the circuit, continue with adding the gates
         if layer < p:
             # insert gates to be inserted inbetween qaoa blocks
-            # this way saves a few if statements
+            # check whether to insert gates inbetween qaoa blocks or after the layer
             match inbetween:
                 case True:
-                    qc.add_circuit(self._qcH(gammas[layer]))
+                    qc.add_circuit(self._qcH(delta[layer + p]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
-                    qc.add_circuit(self._qcB(betas[layer]))
+                    qc.add_circuit(self._qcB(delta[layer]))
                     layer += 1
                 case False:
-                    qc.add_circuit(self._qcH(gammas[layer]))
-                    qc.add_circuit(self._qcB(betas[layer]))
+                    qc.add_circuit(self._qcH(delta[layer + p]))
+                    qc.add_circuit(self._qcB(delta[layer]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
                     layer += 1
-                case None:
-                    qc.add_circuit(self._qcH(gammas[layer]))
-                    qc.add_circuit(self._qcB(betas[layer]))
-
-            # add the rest of the layers
+            # add the rest of the qaoa layers
             # check if we need to pop layers
             if pop_layers is not None:
                 while layer < p:
@@ -209,13 +208,13 @@ class QAOA:
                         layer += 1
                         continue
                     # otherwise add the layer
-                    qc.add_circuit(self._qcH(gammas[layer]))
-                    qc.add_circuit(self._qcB(betas[layer]))
+                    qc.add_circuit(self._qcH(delta[layer + p]))
+                    qc.add_circuit(self._qcB(delta[layer]))
                     layer += 1
             else:
                 while layer < p:
-                    qc.add_circuit(self._qcH(gammas[layer]))
-                    qc.add_circuit(self._qcB(betas[layer]))
+                    qc.add_circuit(self._qcH(delta[layer + p]))
+                    qc.add_circuit(self._qcB(delta[layer]))
                     layer += 1
         return qc
 

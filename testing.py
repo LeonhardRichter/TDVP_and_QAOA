@@ -11,6 +11,7 @@ qaoa = QAOA(qubo=instance.qubo, p=p)
 delta = tuple(1 for _ in range(2 * p))
 
 #%%
+
 gram = qaoa.gram(delta)
 grad = qaoa.grad(delta)
 g_gram = gen_gram(delta, qaoa)
