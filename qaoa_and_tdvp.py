@@ -41,7 +41,7 @@ class QAOA:
         if self.qubo is not None:
             self._n = qubo.shape[0]
             self._qj = q_j(qubo)
-        if self.H is not None:
+        elif self.H is not None:
             self._n = len(self.H.dims[0])
 
         self.mixer_ground = tensor([minus for _ in range(self.n)])
@@ -115,7 +115,7 @@ class QAOA:
     ##############################################################################################
     def _qcHqubo(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"RZZ": rzz}
+        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
         for j in range(self.n):
             qc.add_gate(
                 "RZ",
@@ -132,19 +132,20 @@ class QAOA:
             )
         return qc
 
+    def H_exp(self, arg_value) -> Qobj:
+        return (-1j * arg_value * self.H).expm()
+
     # define the qaoa gates as QubitCircuits
     def _qcHhamiltonian(self, gamma: float) -> QubitCircuit:
-        def H_exp(arg_value) -> Qobj:
-            return (-1j * arg_value * self.H).expm()
 
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"H_exp": H_exp}
-        qc.add_gate("H_exp", arg_value=gamma, arg_label=f"{round(gamma, 2)}")
+        qc.user_gates = {"H_{exp}": self.H_exp}
+        qc.add_gate("H_{exp}", arg_value=gamma, arg_label=f"{round(gamma, 2)}")
         return qc
 
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"RZZ": rzz}
+        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
@@ -173,7 +174,7 @@ class QAOA:
 
         # init circuit
         qc = QubitCircuit(n)
-        qc.user_gates = {"RZZ": rzz}
+        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
         # layer = 0
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
@@ -278,7 +279,7 @@ class QAOA:
     #         QubitCircuit: the quantum circuit for this qaoa insertion.
     #     """
     #     qaoa = self.circuit(delta)  # the usual qaoa circuit
-    #     qaoa.user_gates = {"RZZ": rzz}
+    #     qaoa.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
     #     if pop_gates is not None:
     #         qaoa.remove_gate_or_measurement(
     #             *pop_gates
@@ -522,9 +523,7 @@ class QAOA:
         if i <= p - 1:
             # compute the left state <d_i Psi| = (sum_i(U_i)|psi>)
             left_state = sum(  # the sum over all parts of B
-                self.circuit(
-                    delta, [Gate("X", [k])], i % p, False
-                ).run(  # insert X after B, positions are handpicked and correspond to gate indices not qaoa layers
+                self.circuit(delta, [Gate("X", [k])], i % p, False).run(
                     self.mixer_ground
                 )
                 for k in range(n)
@@ -739,7 +738,7 @@ def scipy_optimize(
 
 
 def finitediff(
-    func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-6
+    func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-10
 ) -> Callable[[tuple[float]], list[Qobj]]:
     def dfunc(params) -> list:
         params = tuple(params)
@@ -767,9 +766,9 @@ def gen_grad(
         np.matrix: Gradient.
     """
     dpsi = finitediff(qaoa.state)
-    p = int(len(pars))
+    p = qaoa.p
     out = np.matrix(
-        [(dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(p)]
+        [(dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(2 * p)]
     )
     return out
 
