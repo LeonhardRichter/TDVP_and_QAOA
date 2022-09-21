@@ -174,48 +174,51 @@ class QAOA:
         # init circuit
         qc = QubitCircuit(n)
         qc.user_gates = {"RZZ": rzz}
-        layer = 0
+        # layer = 0
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
-        while layer < at_layer:
-            qc.add_circuit(self._qcH(delta[layer + p]))
-            qc.add_circuit(self._qcB(delta[layer]))
-            layer += 1
+        # while layer < at_layer:
+        for i in range(at_layer):
+            qc.add_circuit(self._qcH(delta[i + p]))
+            qc.add_circuit(self._qcB(delta[i]))
+            # layer += 1
         # layer == at_layer
         # when not at the end of the circuit, continue with adding the gates
-        if layer < p:
+        if at_layer < p:
             # insert gates to be inserted inbetween qaoa blocks
             # check whether to insert gates inbetween qaoa blocks or after the layer
             match inbetween:
                 case True:
-                    qc.add_circuit(self._qcH(delta[layer + p]))
+                    qc.add_circuit(self._qcH(delta[at_layer + p]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
-                    qc.add_circuit(self._qcB(delta[layer]))
-                    layer += 1
+                    qc.add_circuit(self._qcB(delta[at_layer]))
+                    # layer += 1
                 case False:
-                    qc.add_circuit(self._qcH(delta[layer + p]))
-                    qc.add_circuit(self._qcB(delta[layer]))
+                    qc.add_circuit(self._qcH(delta[at_layer + p]))
+                    qc.add_circuit(self._qcB(delta[at_layer]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
-                    layer += 1
+                    # layer += 1
             # add the rest of the qaoa layers
             # check if we need to pop layers
             if pop_layers is not None:
-                while layer < p:
+                # while layer < p:
+                for i in range(at_layer + 1, p):
                     # skip layer if it is to be popped
-                    if layer in range(*pop_layers):
-                        layer += 1
+                    if i in range(*pop_layers):
+                        # layer += 1
                         continue
                     # otherwise add the layer
-                    qc.add_circuit(self._qcH(delta[layer + p]))
-                    qc.add_circuit(self._qcB(delta[layer]))
-                    layer += 1
+                    qc.add_circuit(self._qcH(delta[i + p]))
+                    qc.add_circuit(self._qcB(delta[i]))
+                    # layer += 1
             else:
-                while layer < p:
-                    qc.add_circuit(self._qcH(delta[layer + p]))
-                    qc.add_circuit(self._qcB(delta[layer]))
-                    layer += 1
+                # while layer < p:
+                for i in range(at_layer + 1, p):
+                    qc.add_circuit(self._qcH(delta[i + p]))
+                    qc.add_circuit(self._qcB(delta[i]))
+                    # layer += 1
         return qc
 
     # def circuitDiff_old(
@@ -355,10 +358,7 @@ class QAOA:
                     left=([Gate("X", [l])], i % p, False),  # insert X at layer i
                     right=([Gate("X", [k])], j % p, False),  # same as above
                     # remove gates that will cancel each other out due to the adjoint circuit. This only works when i<=j! That is handled by self.gram only computing the upper triangle with this method
-                    pop_layers=(
-                        j + 1,
-                        p,
-                    ),
+                    pop_layers=(j + 1, p),
                 )
                 for k, l in product(
                     range(n), repeat=2
