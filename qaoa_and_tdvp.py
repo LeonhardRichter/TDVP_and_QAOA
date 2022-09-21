@@ -201,13 +201,22 @@ class QAOA:
                     qc.add_circuit(self._qcB(betas[layer]))
 
             # add the rest of the layers
-            while layer < p:
-                if pop_layers is not None:
+            # check if we need to pop layers
+            if pop_layers is not None:
+                while layer < p:
+                    # skip layer if it is to be popped
                     if layer in range(*pop_layers):
+                        layer += 1
                         continue
-                qc.add_circuit(self._qcH(gammas[layer]))
-                qc.add_circuit(self._qcB(betas[layer]))
-                layer += 1
+                    # otherwise add the layer
+                    qc.add_circuit(self._qcH(gammas[layer]))
+                    qc.add_circuit(self._qcB(betas[layer]))
+                    layer += 1
+            else:
+                while layer < p:
+                    qc.add_circuit(self._qcH(gammas[layer]))
+                    qc.add_circuit(self._qcB(betas[layer]))
+                    layer += 1
         return qc
 
     # def circuitDiff_old(
@@ -344,8 +353,8 @@ class QAOA:
             element = sum(
                 A(
                     delta=delta,
-                    left=([Gate("X", [l])], i, False),  # insert X at layer i
-                    right=([Gate("X", [k])], j, False),  # same as above
+                    left=([Gate("X", [l])], i % p, False),  # insert X at layer i
+                    right=([Gate("X", [k])], j % p, False),  # same as above
                     # remove gates that will cancel each other out due to the adjoint circuit. This only works when i<=j! That is handled by self.gram only computing the upper triangle with this method
                     pop_layers=(
                         j + 1,
@@ -361,8 +370,8 @@ class QAOA:
             element = sum(
                 (qubo[l][l] + qj[l])  # the linear qubo coefficients coming from Z
                 * A(
-                    left=([Gate("X", [k])], i, False),  # insert X after B
-                    right=([Gate("Z", [l])], j, True),  # insert Z inbetween H and B
+                    left=([Gate("X", [k])], i % p, False),  # insert X after B
+                    right=([Gate("Z", [l])], j % p, True),  # insert Z inbetween H and B
                     delta=delta,
                     pop_layers=(j + 1, p),
                 )
@@ -371,10 +380,10 @@ class QAOA:
                 2  # 2* is due to qubo being symmetric and not upper triangular
                 * qubo[l][m]  # the quadratic qubo coefficients coming from ZZ
                 * A(
-                    left=([Gate("X", [k])], i, False),  # insert X after B
+                    left=([Gate("X", [k])], i % p, False),  # insert X after B
                     right=(
                         [Gate("Z", [l]), Gate("Z", [m])],
-                        j,
+                        j % p,
                         True,
                     ),  # insert two Z's inbetween H and B
                     delta=delta,
@@ -398,8 +407,8 @@ class QAOA:
                         qubo[l, l] + qj[l]
                     )  # the linear qubo coefficients coming from Z_l
                     * A(
-                        left=([Gate("Z", [k])], i + 1, True),  # insert Z after H
-                        right=([Gate("Z", [l])], j + 1, True),  # insert Z after H
+                        left=([Gate("Z", [k])], i % p, True),  # insert Z after H
+                        right=([Gate("Z", [l])], j % p, True),  # insert Z after H
                         delta=delta,
                         pop_layers=(j + 1, p),
                     )
@@ -416,10 +425,10 @@ class QAOA:
                     * A(
                         left=(
                             [Gate("Z", [k]), Gate("Z", l)],
-                            i,
+                            i % p,
                             True,
                         ),  # insert two Z's after H
-                        right=([Gate("Z", [m])], j, True),  # insert Z after H
+                        right=([Gate("Z", [m])], j % p, True),  # insert Z after H
                         delta=delta,
                         pop_layers=(j + 1, p),
                     )
@@ -434,10 +443,10 @@ class QAOA:
                     )  # the linear qubo coefficients coming from Z_k
                     * qubo[l, m]  # the quadratic qubo coefficients coming from Z_l Z_m
                     * A(
-                        left=([Gate("Z", [k])], i, True),  # insert Z after H
+                        left=([Gate("Z", [k])], i % p, True),  # insert Z after H
                         right=(
                             [Gate("Z", [l]), Gate("Z", [m])],
-                            j,
+                            j % p,
                             True,
                         ),  # insert two Z's after H
                         delta=delta,
@@ -455,12 +464,12 @@ class QAOA:
                     * A(
                         left=(
                             [Gate("Z", [k]), Gate("Z", [l])],
-                            i,
+                            i % p,
                             True,
                         ),  # insert two Z's after H
                         right=(
                             [Gate("Z", [m]), Gate("Z", [n])],
-                            j,
+                            j % p,
                             True,
                         ),  # insert two Z's after H
                         delta=delta,
@@ -508,38 +517,41 @@ class QAOA:
         Returns:
             np.complex_: _description_
         """
-        if i <= self.p - 1:
+
+        p, n = self.p, self.n
+
+        if i <= p - 1:
             # compute the left state <d_i Psi| = (sum_i(U_i)|psi>)
             left_state = sum(  # the sum over all parts of B
                 self.circuit(
-                    delta, [Gate("X", [k])], i, False
+                    delta, [Gate("X", [k])], i % p, False
                 ).run(  # insert X after B, positions are handpicked and correspond to gate indices not qaoa layers
                     self.mixer_ground
                 )
-                for k in range(self.n)
+                for k in range(n)
             )
             return (left_state.dag() * self.H * self.state(delta))[0, 0]
 
-        if i > self.p - 1:
+        if i > p - 1:
             left_state = sum(
                 (
                     self.qubo[k, k] + self.qj[k]
                 )  # the linear qubo coefficients coming from Z_k
                 * (
-                    self.circuit(delta, [Gate("Z", [k])], i, True).run(
+                    self.circuit(delta, [Gate("Z", [k])], i % p, True).run(
                         self.mixer_ground
                     )
                 )
-                for k in range(self.n)
+                for k in range(n)
             ) + sum(
                 2  # factor of two because qubo is symmetric and we only add each gate combination once
                 * self.qubo[k, l]  # the quadratic qubo coefficients coming from Z_k Z_l
                 * (
-                    self.circuit(delta, [Gate("Z", [k]), Gate("Z", [l])], i, True).run(
-                        self.mixer_ground
-                    )
+                    self.circuit(
+                        delta, [Gate("Z", [k]), Gate("Z", [l])], i % p, True
+                    ).run(self.mixer_ground)
                 )
-                for k, l in combinations(range(self.n), 2)
+                for k, l in combinations(range(n), 2)
             )
             return left_state.overlap(self.H * self.state(delta))
 
@@ -570,7 +582,7 @@ class QAOAResult:
         return self._orig_result
 
     @orig_result.setter
-    def orig_result(self, value):
+    def orig_result(self, value) -> None:
         self._orig_result = value
 
     @property
@@ -580,7 +592,7 @@ class QAOAResult:
         return self._qaoa
 
     @qaoa.setter
-    def qaoa(self, value: QAOA):
+    def qaoa(self, value: QAOA) -> None:
         self._qaoa = value
 
     @property
@@ -589,7 +601,7 @@ class QAOAResult:
         return self._optimal_parameters
 
     @parameters.setter
-    def parameters(self, value: tuple[float]):
+    def parameters(self, value: tuple[float]) -> None:
         self._optimal_parameters = value
 
     @property
@@ -598,7 +610,7 @@ class QAOAResult:
         return self._optimal_state
 
     @state.setter
-    def state(self, value: Qobj()):
+    def state(self, value: Qobj()) -> None:
         self._optimal_state = value
 
     @property
@@ -607,7 +619,7 @@ class QAOAResult:
         return self._duration
 
     @duration.setter
-    def duration(self, value: float):
+    def duration(self, value: float) -> None:
         self._duration = value
 
     @property
@@ -619,7 +631,7 @@ class QAOAResult:
             return None
 
     @num_steps.setter
-    def num_steps(self, value: int):
+    def num_steps(self, value: int) -> None:
         self._num_steps = value
 
     @property
@@ -628,7 +640,7 @@ class QAOAResult:
         return self._num_fun_calls
 
     @num_fun_calls.setter
-    def num_fun_calls(self, value: int):
+    def num_fun_calls(self, value: int) -> None:
         self._num_fun_calls = value
 
     @property
@@ -637,7 +649,7 @@ class QAOAResult:
         return self._optimal_fun_value
 
     @value.setter
-    def value(self, value: float):
+    def value(self, value: float) -> None:
         self._optimal_fun_value = value
 
     @property
@@ -646,7 +658,7 @@ class QAOAResult:
         return self._parameter_path
 
     @parameter_path.setter
-    def parameter_path(self, value: list[tuple[float]]):
+    def parameter_path(self, value: list[tuple[float]]) -> None:
         self._parameter_path = value
 
     @property
@@ -655,7 +667,7 @@ class QAOAResult:
         return self._sucess
 
     @success.setter
-    def success(self, value: bool):
+    def success(self, value: bool) -> None:
         self._sucess = value
 
     @property
@@ -664,7 +676,7 @@ class QAOAResult:
         return self._optimizer_name
 
     @optimizer_name.setter
-    def optimizer_name(self, value: str):
+    def optimizer_name(self, value: str) -> None:
         self._optimizer_name = value
 
     # message
@@ -683,7 +695,7 @@ class QAOAResult:
         groundstates = eigenstates[1][np.where(eigenstates[0] == eigenstates[0][0])]
         return max(abs(self.state.overlap(ground)) ** 2 for ground in groundstates)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"""
         {self.optimizer_name} terminated with {'no' if not self.success else ''} sucess with message
         \"{self.message}\"
