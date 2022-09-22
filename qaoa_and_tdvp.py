@@ -72,6 +72,8 @@ class QAOA:
     @property
     def H_ground(self) -> Qobj:
         """The H_ground property."""
+        if self._H_ground is None:
+            self._H_ground = self.H.groundstate()[1]
         return self._H_ground
 
     @H_ground.setter
@@ -120,14 +122,14 @@ class QAOA:
             qc.add_gate(
                 "RZ",
                 targets=[j],
-                arg_value=2 * gamma * (self.qubo[j][j] + self.qj[j]),
+                arg_value=-gamma * (self.qubo[j][j] + self.qj[j]),
                 arg_label=f"2*{round(gamma, 2)}*(Q_{{{j}{j}}}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
-                arg_value=2 * gamma * self.qubo[j][k],
+                arg_value=1 / 2 * gamma * self.qubo[j][k],
                 arg_label=f"2*{round(gamma, 2)}*Q_{{{j}{k}}}",
             )
         return qc
@@ -367,7 +369,7 @@ class QAOA:
             )
 
         elif i <= p - 1 < j:  # upper right corner of the matrix
-            element = sum(
+            element = (-1 / 2) * sum(
                 (qubo[l][l] + qj[l])  # the linear qubo coefficients coming from Z
                 * A(
                     left=([Gate("X", [k])], i % p, False),  # insert X after B
@@ -376,7 +378,7 @@ class QAOA:
                     pop_layers=(j + 1, p),
                 )
                 for k, l in product(range(n), repeat=2)
-            ) + sum(
+            ) + (1 / 4) * sum(
                 2  # 2* is due to qubo being symmetric and not upper triangular
                 * qubo[l][m]  # the quadratic qubo coefficients coming from ZZ
                 * A(
@@ -401,7 +403,8 @@ class QAOA:
 
         elif i > p - 1 and j > p - 1:  # lower right corner of the matrix
             element = (
-                sum(
+                (1 / 4)
+                * sum(
                     (qubo[k, k] + qj[k])  # the linear qubo coefficients coming from Z_k
                     * (
                         qubo[l, l] + qj[l]
@@ -416,7 +419,8 @@ class QAOA:
                         range(n), repeat=2
                     )  # sum over all possible combinations of Z-gates
                 )
-                + sum(
+                - (1 / 8)
+                * sum(
                     2  # 2* is due to qubo being symmetric and not upper triangular
                     * qubo[k, l]  # the quadratic qubo coefficients coming from Z_k Z_l
                     * (
@@ -436,7 +440,8 @@ class QAOA:
                         combinations(range(n), r=2), range(n)
                     )  # sum over all possible combinations (k<l) of Z-gates and (m) X Gates, different orderings are counted twice
                 )
-                + sum(
+                - (1 / 8)
+                * sum(
                     2  # 2* is due to qubo being symmetric and not upper triangular
                     * (
                         qubo[k, k] + qj[k]
@@ -456,7 +461,8 @@ class QAOA:
                         range(n), combinations(range(n), r=2)
                     )  # sum over all possible combinations (l<m) of Z-gates and (k) X Gates, different orderings are counted twice
                 )
-                + sum(
+                + (1 / 16)
+                * sum(
                     2  # 2* is due to qubo being symmetric and not upper triangular
                     * qubo[k, l]  # the quadratic qubo coefficients coming from Z_k Z_l
                     * 2  # 2* is due to qubo being symmetric and not upper triangular
@@ -528,11 +534,11 @@ class QAOA:
                 )
                 for k in range(n)
             )
-            return (left_state.dag() * self.H * self.state(delta))[0, 0]
 
         if i > p - 1:
             left_state = sum(
-                (
+                (-1 / 2)
+                * (
                     self.qubo[k, k] + self.qj[k]
                 )  # the linear qubo coefficients coming from Z_k
                 * (
@@ -543,6 +549,7 @@ class QAOA:
                 for k in range(n)
             ) + sum(
                 2  # factor of two because qubo is symmetric and we only add each gate combination once
+                * (1 / 4)
                 * self.qubo[k, l]  # the quadratic qubo coefficients coming from Z_k Z_l
                 * (
                     self.circuit(
@@ -551,7 +558,9 @@ class QAOA:
                 )
                 for k, l in combinations(range(n), 2)
             )
-            return left_state.overlap(self.H * self.state(delta))
+        return (-1j * left_state).overlap(self.H * self.state(delta))
+        # the -1j comes from the analytical expression.
+        # In the gram matrix these phase disappears, but here in the gradient it does not.
 
     def grad(self, delta: tuple[float], **kwargs) -> NDArray:
         return np.matrix(
@@ -875,6 +884,12 @@ def tdvp_optimize_qaoa(
     Returns:
         QAOAResult: the result of the qaoa after optimization.
     """
+    assert rhs_mode in {
+        "qaoa",
+        "gen",
+        "qaoa_lineq",
+    }, "rhs_mode must be one of 'qaoa', 'gen' or 'qaoa_lineq'"
+
     rhs_step = 0
     if rhs_mode == "qaoa":
 

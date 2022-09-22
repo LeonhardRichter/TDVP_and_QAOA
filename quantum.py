@@ -28,16 +28,16 @@ def q_j(qubo: ArrayLike) -> NDArray:
 def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
     n = qubo.shape[0]
     qj = q_j(qubo)
+    # handle constant term
     if constant == None:
-        qconstant = Qobj(
-            np.full((2**n, 2**n), 0),
-            dims=[[2 for _ in range(n)], [2 for _ in range(n)]],
-        )
-    else:
-        qconstant = constant * qeye([2 for _ in range(n)])
+        constant = 0
+    qconstant = (
+        constant + np.sum(np.diagonal(qubo)) + np.sum(qubo - np.diag(np.diagonal(qubo)))
+    ) * qeye([2 for _ in range(n)])
     H = (
-        sum([(qubo[i][i] + qj[i]) * sz(n, i) for i in range(n)])
-        + sum([qubo[j][k] * sz(n, j) * sz(n, k) for j, k in permutations(range(n), 2)])
+        (-1 / 2) * sum((qubo[i][i] + qj[i]) * sz(n, i) for i in range(n))
+        + (1 / 4)
+        * sum(qubo[j][k] * sz(n, j) * sz(n, k) for j, k in permutations(range(n), 2))
         + qconstant
     )
     return H
