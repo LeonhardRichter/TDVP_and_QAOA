@@ -224,72 +224,6 @@ class QAOA:
                     # layer += 1
         return qc
 
-    # def circuitDiff_old(
-    #     self, delta: tuple, opers: list[Gate], i: int, tilde: bool = False
-    # ) -> QubitCircuit:
-    #     """Compute the qaoa circuit with some gates inserted at a certain position.
-
-    #     Args:
-    #         delta (tuple): point ot look at.
-    #         opers (list[Gate]): gates to insert
-    #         i (int): qaoa layer for the gates to be inserted at
-    #         tilde (bool, optional): Type of the insertion. If set to True, the gates are inserted inbetween H and B.
-    #                                 If set to False, the gates are inserted after B. Defaults to False.
-
-    #     Returns:
-    #         QubitCircuit: the quantum circuit for this qaoa insertion.
-    #     """
-    #     n = self.n
-    #     p = self.p
-    #     assert len(delta) == 2 * p
-
-    #     qc = QubitCircuit(n, user_gates={"RZZ": rzz})
-    #     match tilde:
-    #         case True:
-    #             for layer in range(p):
-    #                 qc.add_circuit(self._qcH(delta[i + p]))
-    #                 if layer == i:
-    #                     for oper in opers:
-    #                         qc.add_gate(oper)
-    #                 qc.add_circuit(self._qcB(delta[i]))
-    #         case False:
-    #             for layer in range(p):
-    #                 qc.add_circuit(self._qcH(delta[i + p]))
-    #                 qc.add_circuit(self._qcB(delta[i]))
-    #                 if layer == i:
-    #                     for oper in opers:
-    #                         qc.add_gate(oper)
-    #     return qc
-
-    # def circuitDiff(
-    #     self,
-    #     delta,
-    #     gates: Iterable[Gate],
-    #     position: int,
-    #     pop_gates: Tuple[int, int] = None,
-    # ) -> QubitCircuit:
-    #     """Compute the qaoa circuit with some gates inserted at a certain position, and some gates removed.
-
-    #     Args:
-    #         delta (_type_): point ot look at.
-    #         gates (Iterable[Gate]): gates to insert
-    #         position (int): gate index for the gates to be inserted at
-    #         pop_gates (Tuple[int, int], optional): Gates to be removed. IMPORTANT: These gates may only be at higher indices than the inserted ones.
-    #         Otherwise the indexing will go wrong. Defaults to None.
-
-    #     Returns:
-    #         QubitCircuit: the quantum circuit for this qaoa insertion.
-    #     """
-    #     qaoa = self.circuit(delta)  # the usual qaoa circuit
-    #     qaoa.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
-    #     if pop_gates is not None:
-    #         qaoa.remove_gate_or_measurement(
-    #             *pop_gates
-    #         )  # possiblity to remove gates, do this before inserting new ones, otherwise the indexing will be wrong
-    #     for gate in gates:  # for each given gate, insert it at the given position
-    #         qaoa.add_gate(gate, index=[position])
-    #     return qaoa
-
     def state(self, delta: tuple[float]) -> Qobj:
         return self.circuit(delta).run(self.mixer_ground)
 
@@ -500,7 +434,7 @@ class QAOA:
         gram = np.zeros((2 * self.p, 2 * self.p), dtype=np.complex128)
         # populate the upper triangular part and diagonal of the gram matrix using self._Gij
         # np.triu_indices returns the indices of the upper triangular part of a matrix
-        gram[np.triu_indices(2 * self.p)] = parallel_map(
+        gram[np.triu_indices(2 * self.p)] = serial_map(
             task=self._Gij,
             values=list(
                 combinations_with_replacement(range(2 * self.p), r=2)
@@ -564,7 +498,7 @@ class QAOA:
 
     def grad(self, delta: tuple[float], **kwargs) -> NDArray:
         return np.matrix(
-            parallel_map(self._grad_element, range(len(delta)), task_args=(delta,))
+            serial_map(self._grad_element, range(len(delta)), task_args=(delta,))
         )
 
 

@@ -2,8 +2,8 @@
 from qaoa_and_tdvp import *
 from MaxCut import *
 
-p = 3
-instance = MaxCut(nx.house())
+p = 2
+instance = MaxCut(nx.triangular_lattice_graph(1, 1))
 # nx.draw(instance.graph, with_labels=True)
 
 qaoa = QAOA(qubo=instance.qubo, p=p)
@@ -19,5 +19,6 @@ res = tdvp_optimize_qaoa(
     grad_tol=0.05,
     max_iter=300,
 )
+print(res.prob())
 # %%
-sci_res = scipy_optimize(qaoa, delta)
+# sci_res = scipy_optimize(qaoa, delta)
