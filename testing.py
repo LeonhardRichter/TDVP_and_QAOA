@@ -6,7 +6,7 @@ p = 2
 instance = MaxCut(nx.triangular_lattice_graph(1, 1))
 # nx.draw(instance.graph, with_labels=True)
 
-qaoa = QAOA(qubo=instance.qubo, p=p)
+qaoa = QAOA(qubo=instance.qubo, p=p, use_hamiltonian=False)
 delta = tuple(1 for _ in range(2 * p))
 
 #%%
@@ -19,6 +19,6 @@ res = tdvp_optimize_qaoa(
     grad_tol=0.05,
     max_iter=300,
 )
-print(res.prob())
-# %%
+print(res)
+#
 # sci_res = scipy_optimize(qaoa, delta)

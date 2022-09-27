@@ -1,0 +1,43 @@
+,tdvp,scipy,p,delta_0,tdvp_stepsize,tdvp_grad_tol,tdvp_lineq_solver
+0,"
+        tdvp_optimizer with circuit gradient evaluation and RK45 as integration mode terminated with sucess with message
+        ""The solver successfully reached the end of the integration interval.""
+        This took 2.08 seconds
+        
+            optimal parameters: (1.100615963231544, 1.211251296720109)
+                 optimal value: 23.20199473756998
+        maximal ground overlap: 0.0073976863796632614
+           number of fun calls: 20
+               number of steps: 24
+        ","
+        scipy_cobyla terminated with sucess with message
+        ""Optimization terminated successfully.""
+        This took 0.47 seconds
+        
+            optimal parameters: [2.35611846 0.88630718]
+                 optimal value: 18.50181934311564
+        maximal ground overlap: 0.13618067195352676
+           number of fun calls: 32
+               number of steps: None
+        ",1,"(1, 1)",1,0.001,RK45
+1,"
+        tdvp_optimizer with circuit gradient evaluation and euler as integration mode terminated with no sucess with message
+        ""Euler solver terminated with             no success after 7 steps.""
+        This took 0.67 seconds
+        
+            optimal parameters: [0.78537793 1.33942878]
+                 optimal value: 22.010224778880385
+        maximal ground overlap: 0.0063685991273437405
+           number of fun calls: None
+               number of steps: 7
+        ","
+        scipy_cobyla terminated with sucess with message
+        ""Optimization terminated successfully.""
+        This took 0.47 seconds
+        
+            optimal parameters: [2.35611846 0.88630718]
+                 optimal value: 18.50181934311564
+        maximal ground overlap: 0.13618067195352676
+           number of fun calls: 32
+               number of steps: None
+        ",1,"(1, 1)",1,0.001,euler

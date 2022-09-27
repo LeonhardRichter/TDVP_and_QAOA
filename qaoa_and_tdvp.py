@@ -9,54 +9,81 @@ from scipy import integrate
 from scipy.optimize import minimize
 
 import numpy as np
+from numpy.typing import NDArray
 
 from qutip.parallel import parallel_map, serial_map
-from qutip import expect
+from qutip import expect, Qobj, tensor
 
 # from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
-from quantum import *
+from quantum import H_exp, minus, q_j, rzz, sx, H_from_qubo
 
 
 class QAOA:
     def __init__(
         self,
+        qubo: NDArray,
         hamiltonian: Qobj = None,
         hamiltonian_ground: Qobj = None,
-        qubo: NDArray = None,
         p: int = 1,
         grammode: str = "single",
+        use_hamiltonian: bool = False,
+        mapping=parallel_map,
     ) -> None:
-        """
 
-        :type qubo: NDArray
-        """
         self._H = hamiltonian
         self.H_ground = hamiltonian_ground
         self.qubo = qubo
         self.p = p
 
-        if self.qubo is not None:
-            self._n = qubo.shape[0]
-            self._qj = q_j(qubo)
-        elif self.H is not None:
-            self._n = len(self.H.dims[0])
+        self._n = qubo.shape[0]
+        self._qj = q_j(qubo)
+        assert self._n == len(self.H.dims[0])
 
         self.mixer_ground = tensor([minus for _ in range(self.n)])
 
         # set the H qubo-circuit depending on inputmode
-        if self.qubo is None:
+        if use_hamiltonian:
             self._qcH = self._qcHhamiltonian
+            self._qcB = self._qcBexp
         else:
             self._qcH = self._qcHqubo
+            self._qcB = self._qcBgates
 
         match grammode:
             case "double":
                 self._A = self._Adouble
             case "single":
                 self._A = self._Asingle
+
+        assert mapping in {parallel_map, serial_map, ipy_parallel_map}
+        self._mapping = mapping
+
+        self.mixer = sum(sx(self.n, j) for j in range(self.n))
+
+        self._num_gates = None
+
+    # num_gates
+    @property
+    def num_gates(self) -> int:
+        """The number of gates applied in one run of the circuit."""
+        return self._num_gates
+
+    @num_gates.setter
+    def num_gates(self, value: int) -> None:
+        self._num_gates = value
+
+    # mapping = ipy_parallel_map
+    @property
+    def mapping(self) -> Callable:
+        """The mapping property."""
+        return self._mapping
+
+    @mapping.setter
+    def mapping(self, value: Callable):
+        self._mapping = value
 
     # qj
     @property
@@ -115,10 +142,19 @@ class QAOA:
         self._n = value
 
     ##############################################################################################
+
+    def reset_gate_counter(self) -> None:
+        self.num_gates = 0
+
     def _qcHqubo(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
+        qc.user_gates = {
+            "RZZ": rzz,
+            "H_{exp}": lambda x: H_exp(x, self.H),
+            "B_{exp}": lambda x: H_exp(x, self.mixer),
+        }
         for j in range(self.n):
+            self.num_gates += 1
             qc.add_gate(
                 "RZ",
                 targets=[j],
@@ -126,6 +162,7 @@ class QAOA:
                 arg_label=f"2*{round(gamma, 2)}*(Q_{{{j}{j}}}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
+            self.num_gates += 1
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
@@ -134,25 +171,34 @@ class QAOA:
             )
         return qc
 
-    def H_exp(self, arg_value) -> Qobj:
-        return (-1j * arg_value * self.H).expm()
-
     # define the qaoa gates as QubitCircuits
     def _qcHhamiltonian(self, gamma: float) -> QubitCircuit:
 
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"H_{exp}": self.H_exp}
+        qc.user_gates = {"H_{exp}": lambda x: H_exp(x, self.H)}
+        self.num_gates += 1
+
         qc.add_gate("H_{exp}", arg_value=gamma, arg_label=f"{round(gamma, 2)}")
         return qc
 
-    def _qcB(self, beta: float) -> QubitCircuit:
+    def _qcBexp(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
-        qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
+        qc.user_gates = {"B_{exp}": lambda x: H_exp(x, self.mixer)}
+        self.num_gates += 1
+
+        qc.add_gate("B_{exp}", arg_value=beta, arg_label=f"{round(beta, 2)}")
         return qc
 
-    # TODO: change to just using one circuit method. Opt in for inserting gates inbetween qaoa blocks (U_H or U_B)
-    # and deleting entire qaoa layers (U_H U_B). This
+    def _qcBgates(self, beta: float) -> QubitCircuit:
+        qc = QubitCircuit(self.n)
+        qc.user_gates = {
+            "RZZ": rzz,
+            "H_{exp}": lambda x: H_exp(x, self.H),
+            "B_{exp}": lambda x: H_exp(x, self.mixer),
+        }
+        self.num_gates += self.n
+        qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
+        return qc
 
     # define the whole qaoa circuit
     def circuit(
@@ -176,7 +222,11 @@ class QAOA:
 
         # init circuit
         qc = QubitCircuit(n)
-        qc.user_gates = {"RZZ": rzz, "H_{exp}": self.H_exp}
+        qc.user_gates = {
+            "RZZ": rzz,
+            "H_{exp}": lambda x: H_exp(x, self.H),
+            "B_{exp}": lambda x: H_exp(x, self.mixer),
+        }
         # layer = 0
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
@@ -422,7 +472,11 @@ class QAOA:
             )
         return element
 
-    def gram(self, delta: tuple[float], **kwargs) -> NDArray:
+    def gram(
+        self,
+        delta: tuple[float],
+        # **kwargs #not sure if necessary
+    ) -> NDArray:
         """Evaluate the gram matrix of an qubo-qaoa state on a quantum circuit.
 
         Args:
@@ -434,7 +488,7 @@ class QAOA:
         gram = np.zeros((2 * self.p, 2 * self.p), dtype=np.complex128)
         # populate the upper triangular part and diagonal of the gram matrix using self._Gij
         # np.triu_indices returns the indices of the upper triangular part of a matrix
-        gram[np.triu_indices(2 * self.p)] = serial_map(
+        gram[np.triu_indices(2 * self.p)] = self.mapping(
             task=self._Gij,
             values=list(
                 combinations_with_replacement(range(2 * self.p), r=2)
@@ -496,9 +550,13 @@ class QAOA:
         # the -1j comes from the analytical expression.
         # In the gram matrix these phase disappears, but here in the gradient it does not.
 
-    def grad(self, delta: tuple[float], **kwargs) -> NDArray:
+    def grad(
+        self,
+        delta: tuple[float],
+        # **kwargs #not sure if necessary
+    ) -> NDArray:
         return np.matrix(
-            serial_map(self._grad_element, range(len(delta)), task_args=(delta,))
+            self.mapping(self._grad_element, range(len(delta)), task_args=(delta,))
         )
 
 
@@ -515,6 +573,18 @@ class QAOAResult:
         self._optimal_state = None
         self._optimal_parameters = None
         self._orig_result = None
+        self._prob = None
+        self._num_gates = None
+
+    # num_gates
+    @property
+    def num_gates(self) -> type:
+        """The num_gates property."""
+        return self._num_gates
+
+    @num_gates.setter
+    def num_gates(self, value: type) -> None:
+        self._num_gates = value
 
     # orig_result is the result of the optimizer
     @property
@@ -630,21 +700,34 @@ class QAOAResult:
     def message(self, value: str) -> None:
         self._message = value
 
+    # problem
+    @property
     def prob(self) -> float:
-        """The distance from the groundstate property."""
-        eigenstates = self.qaoa.H.eigenstates()
-        groundstates = eigenstates[1][np.where(eigenstates[0] == eigenstates[0][0])]
-        return max(abs(self.state.overlap(ground)) ** 2 for ground in groundstates)
+        """The maximal overlap with one of the ground states."""
+        if self._prob is None:
+            eigenstates = self.qaoa.H.eigenstates()
+            groundstates = eigenstates[1][np.where(eigenstates[0] == eigenstates[0][0])]
+            self.prob = max(
+                abs(self.state.overlap(ground)) ** 2 for ground in groundstates
+            )
+        return self._prob
+
+    @prob.setter
+    def prob(self, value: float) -> None:
+        self._prob = value
 
     def __str__(self) -> str:
         return f"""
-        {self.optimizer_name} terminated with {'no' if not self.success else ''} sucess with message
+        {self.optimizer_name} terminated with {'no ' if not self.success else ''}sucess with message
         \"{self.message}\"
-
-        optimal parameters:     {self.parameters}
-        optimal value:          {self.value}
-        number of fun calls:    {self.num_fun_calls}
-        number of steps:        {self.num_steps}
+        This took {self.duration:.2f} seconds
+        
+            optimal parameters: {self.parameters}
+                 optimal value: {self.value}
+        maximal ground overlap: {self.prob}
+           number of fun calls: {self.num_fun_calls}
+               number of steps: {self.num_steps}
+               number of gates: {self.num_gates}
         """
 
 
@@ -653,6 +736,7 @@ def scipy_optimize(
     delta_0: tuple[float],
     max_iter: int = 1000,
 ) -> QAOAResult:
+    qaoa.reset_gate_counter()
     opt_result = QAOAResult()
     t_0 = time()
     min_result = minimize(
@@ -676,6 +760,7 @@ def scipy_optimize(
         pass
     opt_result.state = qaoa.state(opt_result.parameters)
     opt_result.optimizer_name = "scipy_cobyla"
+    opt_result.num_gates = qaoa.num_gates
 
     return opt_result
 
@@ -748,6 +833,7 @@ def gen_tdvp_rhs(
     Returns:
         NDArray: the matrix defining the RHS of the equation system
     """
+    _ = t
     inv_real_gram = linalg.inv(2 * np.real(gen_gram(x, qaoa)))
     real_grad = 2 * np.real(gen_grad(x, qaoa))
     return np.array(-inv_real_gram * real_grad.T).flatten()
@@ -765,6 +851,7 @@ def qaoa_tdvp_rhs(t: float, x: Tuple[float], qaoa: QAOA) -> NDArray:
     Returns:
         NDArray: the matrix defining the RHS of the equation
     """
+    _ = t
     inv_real_gram = linalg.inv(2 * np.real(qaoa.gram(x)))
     real_grad = 2 * np.real(qaoa.grad(x))
     return np.array(-inv_real_gram * real_grad.T).flatten()
@@ -782,6 +869,7 @@ def qaoa_lineq_tdvp_rhs(t: float, x: Tuple[float], qaoa: QAOA) -> np.ndarray:
     Returns:
         NDArray: the matrix defining the RHS of the equation
     """
+    _ = t
     gram: NDArray = 2 * np.real(qaoa.gram(x))
     grad: NDArray = 2 * np.real(qaoa.grad(x)).T
     return linalg.solve(
@@ -824,6 +912,8 @@ def tdvp_optimize_qaoa(
         "qaoa_lineq",
     }, "rhs_mode must be one of 'qaoa', 'gen' or 'qaoa_lineq'"
 
+    qaoa.reset_gate_counter()
+
     rhs_step = 0
     if rhs_mode == "qaoa":
 
@@ -854,11 +944,7 @@ def tdvp_optimize_qaoa(
             linalg.norm(tdvp_rhs(t, x)) - grad_tol
         )  # stop if the norm of the rhs is smaller than grad_tol
 
-    # def scipy_max_steps(t, x) -> int:
-    #     return max_iter - rhs_step
-
-    # scipy_max_steps.terminal = True
-    # scipy_max_steps.direction = -1
+    tdvp_terminal.terminal = True  # this is needed for the scipy solver
 
     match int_mode:
         case "euler":
@@ -871,6 +957,7 @@ def tdvp_optimize_qaoa(
                 if linalg.norm(rhs) < grad_tol:  # break when gradient is small enough
                     break
             dt = process_time() - t_0  # time for integration
+            print("done\n")
             # save the result
             result = QAOAResult()
             result.orig_result = None
@@ -880,7 +967,7 @@ def tdvp_optimize_qaoa(
             result.parameters = delta  # last step
             result.message = f"Euler solver terminated with \
             {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
-            result.num_fun_calls = rhs_step  # number of function calls
+            result.num_steps = rhs_step  # number of steps
 
         case _:
             t_0 = process_time()
@@ -891,9 +978,8 @@ def tdvp_optimize_qaoa(
                 y0=delta_0,
                 method=int_mode,
                 events=tdvp_terminal,
-                atol=1e-3,
-                rtol=1e-2,
             )
+            print("\n done")
             dt = process_time() - t_0  # time for integration
             # save the result
             result = QAOAResult()  # create result object
@@ -906,11 +992,11 @@ def tdvp_optimize_qaoa(
     result.qaoa = qaoa
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
-    result.optimizer_name = f"tdvp_optimizer with \
-        {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode."
+    result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode"
     result.state = qaoa.state(result.parameters)  # final state
     result.value = qaoa.expectation(
         result.parameters
     )  # expectation value of the optimal state
+    result.num_gates = qaoa.num_gates  # number of gates
 
     return result

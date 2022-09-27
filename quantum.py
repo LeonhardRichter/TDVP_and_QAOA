@@ -5,6 +5,10 @@ from qutip import sigmaz, sigmax, basis, tensor, qeye, Qobj
 from qutip.qip.operations import expand_operator, rz
 
 
+def H_exp(arg_value, H) -> Qobj:
+    return (-1j * arg_value * H).expm()
+
+
 def sz(n: int, i: int) -> Qobj:
     return expand_operator(sigmaz(), n, i, [2 for _ in range(n)])
 

@@ -1,30 +1,32 @@
 #%%
 import networkx as nx
-
-from quantum import *
+from numpy.typing import NDArray
+import numpy as np
+from qutip import Qobj
+from quantum import H_from_qubo
 
 #%%
 
 
 class MaxCut:
-    def __init__(self, graph: nx.Graph) -> None:
+    def __init__(self, graph: nx.Graph, draw: bool = True) -> None:
         self.graph = graph
         for (i, j) in self.graph.edges:
             if "weight" not in self.graph[i][j].keys():
                 self.graph[i][j]["weight"] = 1
         self._qubo = self._get_qubo(self.graph)
         self.H = self._get_hamiltonian()
+        if draw:
+            nx.draw(self.graph, with_labels=True)
 
-
-
-# qubo
+    # qubo
     @property
     def qubo(self) -> NDArray:
         """The qubo matrix for the mac-cut instance corresponding to self.graph"""
         return self._qubo
 
     @qubo.setter
-    def qubo(self, value: NDArray):
+    def qubo(self, value: NDArray) -> None:
         self._qubo = value
 
     def _get_qubo(self, graph: nx.Graph = None) -> NDArray:
