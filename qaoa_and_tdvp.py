@@ -29,7 +29,6 @@ class QAOA:
         hamiltonian_ground: Qobj = None,
         p: int = 1,
         grammode: str = "single",
-        use_hamiltonian: bool = False,
         mapping=parallel_map,
     ) -> None:
 
@@ -44,13 +43,13 @@ class QAOA:
 
         self.mixer_ground = tensor([minus for _ in range(self.n)])
 
-        # set the H qubo-circuit depending on inputmode
-        if use_hamiltonian:
-            self._qcH = self._qcHhamiltonian
-            self._qcB = self._qcBexp
-        else:
-            self._qcH = self._qcHqubo
-            self._qcB = self._qcBgates
+        # # set the H qubo-circuit depending on inputmode
+        # if use_hamiltonian:
+        #     self._qcH = self._qcHhamiltonian
+        #     self._qcB = self._qcBexp
+        # else:
+        #     self._qcH = self._qcHqubo
+        #     self._qcB = self._qcBgates
 
         match grammode:
             case "double":
@@ -146,7 +145,8 @@ class QAOA:
     def reset_gate_counter(self) -> None:
         self.num_gates = 0
 
-    def _qcHqubo(self, gamma: float) -> QubitCircuit:
+    # the qaoa parts as QubitCircuits
+    def _qcH(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = {
             "RZZ": rzz,
@@ -171,25 +171,7 @@ class QAOA:
             )
         return qc
 
-    # define the qaoa gates as QubitCircuits
-    def _qcHhamiltonian(self, gamma: float) -> QubitCircuit:
-
-        qc = QubitCircuit(self.n)
-        qc.user_gates = {"H_{exp}": lambda x: H_exp(x, self.H)}
-        self.num_gates += 1
-
-        qc.add_gate("H_{exp}", arg_value=gamma, arg_label=f"{round(gamma, 2)}")
-        return qc
-
-    def _qcBexp(self, beta: float) -> QubitCircuit:
-        qc = QubitCircuit(self.n)
-        qc.user_gates = {"B_{exp}": lambda x: H_exp(x, self.mixer)}
-        self.num_gates += 1
-
-        qc.add_gate("B_{exp}", arg_value=beta, arg_label=f"{round(beta, 2)}")
-        return qc
-
-    def _qcBgates(self, beta: float) -> QubitCircuit:
+    def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = {
             "RZZ": rzz,
@@ -200,7 +182,7 @@ class QAOA:
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
-    # define the whole qaoa circuit
+    # the whole qaoa circuit
     def circuit(
         self,
         delta: tuple[float],
@@ -274,6 +256,7 @@ class QAOA:
                     # layer += 1
         return qc
 
+    # wrappers for results
     def state(self, delta: tuple[float]) -> Qobj:
         return self.circuit(delta).run(self.mixer_ground)
 
@@ -281,6 +264,7 @@ class QAOA:
         assert len(delta) == 2 * self.p
         return expect(self.H, self.state(delta))
 
+    # methods for tdvp metric and gradient
     def _Adouble(
         self,
         left: tuple[tuple[Gate], int, bool],
