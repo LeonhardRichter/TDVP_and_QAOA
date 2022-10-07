@@ -11,6 +11,8 @@ from scipy.optimize import minimize
 import numpy as np
 from numpy.typing import NDArray
 
+from multiprocessing import Value
+
 from qutip.parallel import parallel_map, serial_map
 from qutip import expect, Qobj, tensor
 
@@ -22,6 +24,8 @@ from quantum import H_exp, minus, q_j, rzz, sx, H_from_qubo
 
 
 class QAOA:
+    _num_gates = Value("i", 0)
+
     def __init__(
         self,
         qubo: NDArray,
@@ -62,8 +66,6 @@ class QAOA:
 
         self.mixer = sum(sx(self.n, j) for j in range(self.n))
 
-        self._num_gates = 0
-
     # qubo circuit
     @property
     def qubo(self) -> NDArray:
@@ -83,11 +85,11 @@ class QAOA:
     @property
     def num_gates(self) -> int:
         """The number of gates applied in one run of the circuit."""
-        return self._num_gates
+        return self._num_gates.value
 
     @num_gates.setter
     def num_gates(self, value: int) -> None:
-        self._num_gates = value
+        self._num_gates.value = value
 
     # mapping = ipy_parallel_map
     @property
@@ -196,6 +198,16 @@ class QAOA:
         self.num_gates += qc.N
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
+
+    def test_step(self, *args):
+        self._num_gates.value += 1
+
+    def test_map(self, *args):
+        self.reset_gate_counter()
+        parallel_map(self.test_step, range(10))
+        res = self._num_gates.value
+        self.reset_gate_counter()
+        return res
 
     # the whole qaoa circuit
     def circuit(
@@ -727,12 +739,16 @@ def scipy_optimize(
     qaoa.reset_gate_counter()
     opt_result = QAOAResult()
     t_0 = time()
+
     min_result = minimize(
         qaoa.expectation,
         x0=np.array(delta_0),
         method="COBYLA",
         options={"maxiter": max_iter},
     )
+    num_gates = qaoa.num_gates
+    qaoa.reset_gate_counter()
+
     opt_result.orig_result = min_result
     dt = time() - t_0
     opt_result.qaoa = qaoa
@@ -748,7 +764,7 @@ def scipy_optimize(
         pass
     opt_result.state = qaoa.state(opt_result.parameters)
     opt_result.optimizer_name = "scipy_cobyla"
-    opt_result.num_gates = qaoa.num_gates
+    opt_result.num_gates = num_gates
 
     return opt_result
 
@@ -976,6 +992,9 @@ def tdvp_optimize_qaoa(
             result.parameters = tuple(par[-1] for par in int_result.y)  # last step
             result.message = int_result.message  # message from the solver
             result.num_fun_calls = int_result.nfev  # number of function calls
+    num_gates = qaoa.num_gates()
+    qaoa.reset_gate_counter()
+
     # save the rest of the result, same for both sovlers
     result.qaoa = qaoa
     result.duration = dt  # time for integration
@@ -985,7 +1004,7 @@ def tdvp_optimize_qaoa(
     result.value = qaoa.expectation(
         result.parameters
     )  # expectation value of the optimal state
-    result.num_gates = qaoa.num_gates  # number of gates
+    result.num_gates = num_gates  # number of gates
 
     qaoa.reset_gate_counter()
 
