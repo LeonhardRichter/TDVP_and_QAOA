@@ -1,5 +1,5 @@
 # vscode-fold=2
-from time import time as time, process_time
+from time import time as time, time
 from itertools import combinations, product, combinations_with_replacement
 from typing import Callable, Tuple, Iterable
 
@@ -34,7 +34,7 @@ class QAOA:
 
         self._H = hamiltonian
         self.H_ground = hamiltonian_ground
-        self.qubo = qubo
+        self._qubo = qubo
         self.p = p
 
         self._n = qubo.shape[0]
@@ -62,7 +62,22 @@ class QAOA:
 
         self.mixer = sum(sx(self.n, j) for j in range(self.n))
 
-        self._num_gates = None
+        self._num_gates = 0
+
+    # qubo circuit
+    @property
+    def qubo(self) -> NDArray:
+        """The qubo matrix of the problem."""
+        return self._qubo
+
+    @qubo.setter
+    def qubo(self, value: NDArray) -> None:
+        self._qubo = value
+        self.H = H_from_qubo(value)
+        self.n = value.shape[0]
+        self.qj = q_j(value)
+        self.mixer_ground = tensor([minus for _ in range(self.n)])
+        self.mixer = sum(sx(self.n, j) for j in range(self.n))
 
     # num_gates
     @property
@@ -178,7 +193,7 @@ class QAOA:
             "H_{exp}": lambda x: H_exp(x, self.H),
             "B_{exp}": lambda x: H_exp(x, self.mixer),
         }
-        self.num_gates += self.n
+        self.num_gates += qc.N
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
@@ -209,51 +224,40 @@ class QAOA:
             "H_{exp}": lambda x: H_exp(x, self.H),
             "B_{exp}": lambda x: H_exp(x, self.mixer),
         }
-        # layer = 0
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
-        # while layer < at_layer:
         for i in range(at_layer):
             qc.add_circuit(self._qcH(delta[i + p]))
             qc.add_circuit(self._qcB(delta[i]))
-            # layer += 1
-        # layer == at_layer
+        # layer is now at_layer
         # when not at the end of the circuit, continue with adding the gates
+        # insert gates to be inserted inbetween qaoa blocks
+        # check whether to insert gates inbetween qaoa blocks or after the layer
         if at_layer < p:
-            # insert gates to be inserted inbetween qaoa blocks
-            # check whether to insert gates inbetween qaoa blocks or after the layer
             match inbetween:
                 case True:
                     qc.add_circuit(self._qcH(delta[at_layer + p]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
                     qc.add_circuit(self._qcB(delta[at_layer]))
-                    # layer += 1
                 case False:
                     qc.add_circuit(self._qcH(delta[at_layer + p]))
                     qc.add_circuit(self._qcB(delta[at_layer]))
                     for gate in insert_gates:
                         qc.add_gate(gate)
-                    # layer += 1
+            self.num_gates += len(insert_gates)
             # add the rest of the qaoa layers
             # check if we need to pop layers
             if pop_layers is not None:
-                # while layer < p:
                 for i in range(at_layer + 1, p):
-                    # skip layer if it is to be popped
                     if i in range(*pop_layers):
-                        # layer += 1
                         continue
-                    # otherwise add the layer
                     qc.add_circuit(self._qcH(delta[i + p]))
                     qc.add_circuit(self._qcB(delta[i]))
-                    # layer += 1
             else:
-                # while layer < p:
                 for i in range(at_layer + 1, p):
                     qc.add_circuit(self._qcH(delta[i + p]))
                     qc.add_circuit(self._qcB(delta[i]))
-                    # layer += 1
         return qc
 
     # wrappers for results
@@ -700,7 +704,7 @@ class QAOAResult:
     def prob(self, value: float) -> None:
         self._prob = value
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f"""
         {self.optimizer_name} terminated with {'no ' if not self.success else ''}sucess with message
         \"{self.message}\"
@@ -932,7 +936,7 @@ def tdvp_optimize_qaoa(
 
     match int_mode:
         case "euler":
-            t_0 = process_time()
+            t_0 = time()
             delta = delta_0
             # perform the solving loop
             while rhs_step < max_iter:
@@ -940,7 +944,7 @@ def tdvp_optimize_qaoa(
                 delta = delta + Delta * rhs
                 if linalg.norm(rhs) < grad_tol:  # break when gradient is small enough
                     break
-            dt = process_time() - t_0  # time for integration
+            dt = time() - t_0  # time for integration
             print("done\n")
             # save the result
             result = QAOAResult()
@@ -954,7 +958,7 @@ def tdvp_optimize_qaoa(
             result.num_steps = rhs_step  # number of steps
 
         case _:
-            t_0 = process_time()
+            t_0 = time()
             # solve the ODE
             int_result = integrate.solve_ivp(
                 fun=tdvp_rhs,
@@ -964,7 +968,7 @@ def tdvp_optimize_qaoa(
                 events=tdvp_terminal,
             )
             print("\n done")
-            dt = process_time() - t_0  # time for integration
+            dt = time() - t_0  # time for integration
             # save the result
             result = QAOAResult()  # create result object
             result.orig_result = int_result
@@ -982,5 +986,7 @@ def tdvp_optimize_qaoa(
         result.parameters
     )  # expectation value of the optimal state
     result.num_gates = qaoa.num_gates  # number of gates
+
+    qaoa.reset_gate_counter()
 
     return result
