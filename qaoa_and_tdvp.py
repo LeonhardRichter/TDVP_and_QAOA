@@ -992,8 +992,6 @@ def tdvp_optimize_qaoa(
             result.parameters = tuple(par[-1] for par in int_result.y)  # last step
             result.message = int_result.message  # message from the solver
             result.num_fun_calls = int_result.nfev  # number of function calls
-    num_gates = qaoa.num_gates()
-    qaoa.reset_gate_counter()
 
     # save the rest of the result, same for both sovlers
     result.qaoa = qaoa
@@ -1004,7 +1002,7 @@ def tdvp_optimize_qaoa(
     result.value = qaoa.expectation(
         result.parameters
     )  # expectation value of the optimal state
-    result.num_gates = num_gates  # number of gates
+    result.num_gates = qaoa.num_gates  # number of gates
 
     qaoa.reset_gate_counter()
 
