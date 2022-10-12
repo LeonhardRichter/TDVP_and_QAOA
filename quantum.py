@@ -17,8 +17,22 @@ def sx(n: int, i: int) -> Qobj:
     return expand_operator(sigmax(), n, i, [2 for _ in range(n)])
 
 
-def rzz(arg_value) -> Qobj:
+def rzz_old(arg_value) -> Qobj:
     return tensor(rz(arg_value), rz(-arg_value))
+
+
+def rzz(arg_val) -> Qobj:
+    a = np.zeros((4, 4), dtype=np.complex128)
+    np.fill_diagonal(
+        a,
+        [
+            np.exp(-1j * arg_val / 2),
+            np.exp(1j * arg_val / 2),
+            np.exp(1j * arg_val / 2),
+            np.exp(-1j * arg_val / 2),
+        ],
+    )
+    return Qobj(a, dims=[[2, 2], [2, 2]])
 
 
 minus = (basis(2, 0) - basis(2, 1)).unit()
