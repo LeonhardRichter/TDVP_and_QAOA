@@ -94,6 +94,7 @@ class Benchmark:
         tdvp_stepsize: float = None,
         tdvp_grad_tol: float = None,
         tdvp_lineq_solver: str = None,
+        max_steps: int = 200,
     ) -> None:
         if p is not None:
             qaoa.p = p
@@ -103,6 +104,7 @@ class Benchmark:
             Delta=tdvp_stepsize,
             grad_tol=tdvp_grad_tol,
             int_mode=tdvp_lineq_solver,
+            max_iter=max_steps,
         )
         scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
         self.results.append(

@@ -950,6 +950,11 @@ def tdvp_optimize_qaoa(
 
     tdvp_terminal.terminal = True  # this is needed for the scipy solver
 
+    def tdvp_max_steps(t, x) -> float:
+        return float(max_iter - rhs_step)
+
+    tdvp_max_steps.terminal = True
+
     if int_mode == "euler":
         t_0 = time()
         delta = delta_0
@@ -980,7 +985,7 @@ def tdvp_optimize_qaoa(
             t_span=(0, Delta),
             y0=delta_0,
             method=int_mode,
-            events=tdvp_terminal,
+            events=[tdvp_terminal, tdvp_max_steps],
         )
         print("done\n")
         dt = time() - t_0  # time for integration
