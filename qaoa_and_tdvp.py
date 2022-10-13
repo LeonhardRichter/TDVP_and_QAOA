@@ -1,7 +1,7 @@
 # vscode-fold=2
 from time import time as time, time
 from itertools import combinations, product, combinations_with_replacement
-from typing import Callable, Tuple, Iterable
+from typing import Callable, Tuple, Iterable, Union
 
 # import scipy as sp
 from scipy import linalg
@@ -214,10 +214,10 @@ class QAOA:
     def circuit(
         self,
         delta: tuple[float],
-        insert_gates: None | Iterable[Gate] = None,
-        at_layer: None | int = None,
-        inbetween: None | bool = None,
-        pop_layers: None | Tuple[int, int] = None,
+        insert_gates: Union[None, Iterable[Gate]] = None,
+        at_layer: Union[None, int] = None,
+        inbetween: Union[None, bool] = None,
+        pop_layers: Union[None, Tuple[int, int]] = None,
     ) -> QubitCircuit:
         p, n = self.p, self.n
 
@@ -634,7 +634,7 @@ class QAOAResult:
         self._duration = value
 
     @property
-    def num_steps(self) -> int | None:
+    def num_steps(self) -> Union[int, None]:
         """The num_steps property."""
         try:
             return self._num_steps

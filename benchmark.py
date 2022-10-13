@@ -4,7 +4,7 @@ from qaoa_and_tdvp import (
     scipy_optimize,
 )
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 import pandas as pd
 import pickle
 import numpy as np
@@ -27,7 +27,7 @@ def get_connected_rn_graph(
     number_of_nodes: int,
     p: float,
     number_of_graphs: int = 1,
-) -> nx.Graph | list[nx.Graph]:
+) -> Union[nx.Graph,list[nx.Graph]]:
     assert 0 <= p <= 1, "p must be between 0 and 1"
     selected_graphs = []
     while len(selected_graphs) < number_of_graphs:
