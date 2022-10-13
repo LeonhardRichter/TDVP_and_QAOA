@@ -27,7 +27,7 @@ def get_connected_rn_graph(
     number_of_nodes: int,
     p: float,
     number_of_graphs: int = 1,
-) -> Union[nx.Graph,list[nx.Graph]]:
+) -> Union[nx.Graph, list[nx.Graph]]:
     assert 0 <= p <= 1, "p must be between 0 and 1"
     selected_graphs = []
     while len(selected_graphs) < number_of_graphs:
@@ -40,7 +40,7 @@ def get_connected_rn_graph(
         return selected_graphs
 
 
-def select_if_connected(graph: nx.Graph, number_of_nodes: int) -> nx.Graph | None:
+def select_if_connected(graph: nx.Graph, number_of_nodes: int) -> Union[nx.Graph, None]:
     if graph.number_of_nodes() == number_of_nodes and nx.is_connected(graph):
         return graph
 
