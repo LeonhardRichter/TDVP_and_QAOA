@@ -4,8 +4,6 @@ poetry.lock
 pyproject.toml
 .replit
 .idea
-tmp/
-benchmarks/
 plots/
 
 
