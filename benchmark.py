@@ -75,17 +75,16 @@ class Benchmark:
     ) -> None:
         tdvp_res = QAOAResult()
         scipy_res = QAOAResult()
-        print(
-            {
-                "tdvp": tdvp_res,
-                "scipy": scipy_res,
-                "p": p,
-                "delta_0": delta_0,
-                "tdvp_stepsize": tdvp_stepsize,
-                "tdvp_grad_tol": tdvp_grad_tol,
-                "tdvp_lineq_solver": tdvp_lineq_solver,
-            }
-        )
+
+        return {
+            "tdvp": tdvp_res,
+            "scipy": scipy_res,
+            "p": p,
+            "delta_0": delta_0,
+            "tdvp_stepsize": tdvp_stepsize,
+            "tdvp_grad_tol": tdvp_grad_tol,
+            "tdvp_lineq_solver": tdvp_lineq_solver,
+        }
 
     def run(
         self,
@@ -96,7 +95,8 @@ class Benchmark:
         tdvp_grad_tol: float = None,
         tdvp_lineq_solver: str = None,
     ) -> None:
-        qaoa.p = p
+        if p is not None:
+            qaoa.p = p
         tdvp_res = tdvp_optimize_qaoa(
             qaoa=qaoa,
             delta_0=delta_0,

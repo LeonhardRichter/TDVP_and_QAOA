@@ -55,11 +55,12 @@ class QAOA:
         #     self._qcH = self._qcHqubo
         #     self._qcB = self._qcBgates
 
-        match grammode:
-            case "double":
-                self._A = self._Adouble
-            case "single":
-                self._A = self._Asingle
+        assert grammode in {"single", "double"}, "grammode must be 'single' or 'double'"
+
+        if grammode == "double":
+            self._A = self._Adouble
+        if grammode == "single":
+            self._A = self._Asingle
 
         assert mapping in {parallel_map, serial_map, ipy_parallel_map}
         self._mapping = mapping
@@ -246,17 +247,16 @@ class QAOA:
         # insert gates to be inserted inbetween qaoa blocks
         # check whether to insert gates inbetween qaoa blocks or after the layer
         if at_layer < p:
-            match inbetween:
-                case True:
-                    qc.add_circuit(self._qcH(delta[at_layer + p]))
-                    for gate in insert_gates:
-                        qc.add_gate(gate)
-                    qc.add_circuit(self._qcB(delta[at_layer]))
-                case False:
-                    qc.add_circuit(self._qcH(delta[at_layer + p]))
-                    qc.add_circuit(self._qcB(delta[at_layer]))
-                    for gate in insert_gates:
-                        qc.add_gate(gate)
+            if inbetween:
+                qc.add_circuit(self._qcH(delta[at_layer + p]))
+                for gate in insert_gates:
+                    qc.add_gate(gate)
+                qc.add_circuit(self._qcB(delta[at_layer]))
+            else:
+                qc.add_circuit(self._qcH(delta[at_layer + p]))
+                qc.add_circuit(self._qcB(delta[at_layer]))
+                for gate in insert_gates:
+                    qc.add_gate(gate)
             self.num_gates += len(insert_gates)
             # add the rest of the qaoa layers
             # check if we need to pop layers
@@ -765,7 +765,7 @@ def scipy_optimize(
     opt_result.state = qaoa.state(opt_result.parameters)
     opt_result.optimizer_name = "scipy_cobyla"
     opt_result.num_gates = num_gates
-
+    print("Done Scipy_optim\n")
     return opt_result
 
 
@@ -950,48 +950,47 @@ def tdvp_optimize_qaoa(
 
     tdvp_terminal.terminal = True  # this is needed for the scipy solver
 
-    match int_mode:
-        case "euler":
-            t_0 = time()
-            delta = delta_0
-            # perform the solving loop
-            while rhs_step < max_iter:
-                rhs = tdvp_rhs(0, delta)  # tdvp_rhs increases rhs_step by 1
-                delta = delta + Delta * rhs
-                if linalg.norm(rhs) < grad_tol:  # break when gradient is small enough
-                    break
-            dt = time() - t_0  # time for integration
-            print("done\n")
-            # save the result
-            result = QAOAResult()
-            result.orig_result = None
-            result.success = (
-                linalg.norm(qaoa.grad(delta)) < grad_tol
-            )  # success of integration
-            result.parameters = delta  # last step
-            result.message = f"Euler solver terminated with \
-            {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
-            result.num_steps = rhs_step  # number of steps
+    if int_mode == "euler":
+        t_0 = time()
+        delta = delta_0
+        # perform the solving loop
+        while rhs_step < max_iter:
+            rhs = tdvp_rhs(0, delta)  # tdvp_rhs increases rhs_step by 1
+            delta = delta + Delta * rhs
+            if linalg.norm(rhs) < grad_tol:  # break when gradient is small enough
+                break
+        dt = time() - t_0  # time for integration
+        print("done\n")
+        # save the result
+        result = QAOAResult()
+        result.orig_result = None
+        result.success = (
+            linalg.norm(qaoa.grad(delta)) < grad_tol
+        )  # success of integration
+        result.parameters = delta  # last step
+        result.message = f"Euler solver terminated with \
+        {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
+        result.num_steps = rhs_step  # number of steps
 
-        case _:
-            t_0 = time()
-            # solve the ODE
-            int_result = integrate.solve_ivp(
-                fun=tdvp_rhs,
-                t_span=(0, Delta),
-                y0=delta_0,
-                method=int_mode,
-                events=tdvp_terminal,
-            )
-            print("\n done")
-            dt = time() - t_0  # time for integration
-            # save the result
-            result = QAOAResult()  # create result object
-            result.orig_result = int_result
-            result.success = int_result.success  # success of integration
-            result.parameters = tuple(par[-1] for par in int_result.y)  # last step
-            result.message = int_result.message  # message from the solver
-            result.num_fun_calls = int_result.nfev  # number of function calls
+    if int_mode != "euler":
+        t_0 = time()
+        # solve the ODE
+        int_result = integrate.solve_ivp(
+            fun=tdvp_rhs,
+            t_span=(0, Delta),
+            y0=delta_0,
+            method=int_mode,
+            events=tdvp_terminal,
+        )
+        print("done\n")
+        dt = time() - t_0  # time for integration
+        # save the result
+        result = QAOAResult()  # create result object
+        result.orig_result = int_result
+        result.success = int_result.success  # success of integration
+        result.parameters = tuple(par[-1] for par in int_result.y)  # last step
+        result.message = int_result.message  # message from the solver
+        result.num_fun_calls = int_result.nfev  # number of function calls
 
     # save the rest of the result, same for both sovlers
     result.qaoa = qaoa
