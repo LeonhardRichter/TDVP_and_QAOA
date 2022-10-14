@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Union
 import pandas as pd
 import pickle
 from scipy.linalg import LinAlgError
+import numpy as np
 import networkx as nx
 
 
@@ -121,21 +122,6 @@ class Benchmark:
 
         self.results.append(
             {
-                "tdvp": tdvp_res,
-                "scipy": scipy_res,
-                "p": p,
-                "delta_0": delta_0,
-                "tdvp_stepsize": tdvp_stepsize,
-                "tdvp_grad_tol": tdvp_grad_tol,
-                "tdvp_lineq_solver": tdvp_lineq_solver,
-            }
-        )
-
-    def save(self, filename: str) -> None:
-
-        self.results.append(
-            {
-                "qaoa": qaoa,
                 "tdvp": tdvp_res,
                 "scipy": scipy_res,
                 "p": p,
