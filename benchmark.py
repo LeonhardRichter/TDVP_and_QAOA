@@ -7,7 +7,7 @@ from qaoa_and_tdvp import (
 from typing import List, Dict, Any, Union
 import pandas as pd
 import pickle
-import numpy as np
+from scipy.linalg import LinAlgError
 import networkx as nx
 
 
@@ -98,15 +98,41 @@ class Benchmark:
     ) -> None:
         if p is not None:
             qaoa.p = p
-        tdvp_res = tdvp_optimize_qaoa(
-            qaoa=qaoa,
-            delta_0=delta_0,
-            Delta=tdvp_stepsize,
-            grad_tol=tdvp_grad_tol,
-            int_mode=tdvp_lineq_solver,
-            max_iter=max_steps,
+        try:
+            tdvp_res = tdvp_optimize_qaoa(
+                qaoa=qaoa,
+                delta_0=delta_0,
+                Delta=tdvp_stepsize,
+                grad_tol=tdvp_grad_tol,
+                int_mode=tdvp_lineq_solver,
+                max_iter=max_steps,
+            )
+        except LinAlgError:
+            tdvp_res = QAOAResult()
+            tdvp_res.success = False
+            tdvp_res.message = "LinAlgError"
+
+        try:
+            scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
+        except LinAlgError:
+            scipy_res = QAOAResult()
+            scipy_res.success = False
+            scipy_res.message = "LinAlgError"
+
+        self.results.append(
+            {
+                "tdvp": tdvp_res,
+                "scipy": scipy_res,
+                "p": p,
+                "delta_0": delta_0,
+                "tdvp_stepsize": tdvp_stepsize,
+                "tdvp_grad_tol": tdvp_grad_tol,
+                "tdvp_lineq_solver": tdvp_lineq_solver,
+            }
         )
-        scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
+
+    def save(self, filename: str) -> None:
+
         self.results.append(
             {
                 "qaoa": qaoa,
