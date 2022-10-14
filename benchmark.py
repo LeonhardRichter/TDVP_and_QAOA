@@ -109,6 +109,7 @@ class Benchmark:
         scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
         self.results.append(
             {
+                "qaoa": qaoa,
                 "tdvp": tdvp_res,
                 "scipy": scipy_res,
                 "p": p,
