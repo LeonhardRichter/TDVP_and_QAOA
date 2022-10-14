@@ -1,7 +1,7 @@
 # vscode-fold=2
 from time import time as time, time
 from itertools import combinations, product, combinations_with_replacement
-from typing import Callable, Tuple, Iterable, Union
+from typing import Callable, NoReturn, Tuple, Iterable, Union
 
 # import scipy as sp
 from scipy import linalg
@@ -66,6 +66,22 @@ class QAOA:
         self._mapping = mapping
 
         self.mixer = sum(sx(self.n, j) for j in range(self.n))
+
+        self._user_gates = {
+            "RZZ": rzz,
+            "H_{exp}": lambda x: H_exp(x, self.H),
+            "B_{exp}": lambda x: H_exp(x, self.mixer),
+        }
+
+    # user_gates
+    @property
+    def user_gates(self) -> None:
+        """The user_gates for qaoa."""
+        return self._user_gates
+
+    @user_gates.setter
+    def user_gates(self, value: dict[str, Callable]) -> NoReturn:
+        raise Exception("user_gates are not settable")
 
     # qubo circuit
     @property
@@ -166,11 +182,7 @@ class QAOA:
     # the qaoa parts as QubitCircuits
     def _qcH(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         for j in range(self.n):
             self.num_gates += 1
             qc.add_gate(
@@ -191,11 +203,7 @@ class QAOA:
 
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         self.num_gates += qc.N
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
@@ -232,11 +240,7 @@ class QAOA:
 
         # init circuit
         qc = QubitCircuit(n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
         for i in range(at_layer):
