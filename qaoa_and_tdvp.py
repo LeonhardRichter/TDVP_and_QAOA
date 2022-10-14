@@ -1051,7 +1051,9 @@ def tdvp_optimize_qaoa(
             t_span=(0, Delta),
             y0=delta_0,
             method=int_mode,
-            events=[tdvp_terminal, tdvp_max_steps],
+            events=[
+                tdvp_terminal,  # tdvp_max_steps
+            ],
         )
         print("done\n")
         dt = time() - t_0  # time for integration
