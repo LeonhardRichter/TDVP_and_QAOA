@@ -25,9 +25,7 @@ def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
 
 
 def get_connected_rn_graph(
-    number_of_nodes: int,
-    p: float,
-    number_of_graphs: int = 1,
+    number_of_nodes: int, p: float, number_of_graphs: int = 1,
 ) -> Union[nx.Graph, list[nx.Graph]]:
     assert 0 <= p <= 1, "p must be between 0 and 1"
     selected_graphs = []
@@ -112,6 +110,8 @@ class Benchmark:
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "LinAlgError"
+            tdvp_res.prob = 0
+            tdvp_res.qaoa = qaoa
 
         try:
             scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
@@ -119,6 +119,8 @@ class Benchmark:
             scipy_res = QAOAResult()
             scipy_res.success = False
             scipy_res.message = "LinAlgError"
+            scipy_res.prob = 0
+            scipy_res.qaoa = qaoa
 
         self.results.append(
             {
