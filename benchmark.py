@@ -7,6 +7,7 @@ from qaoa_and_tdvp import (
 from typing import List, Dict, Any, Union
 import pandas as pd
 import pickle
+from scipy.linalg import LinAlgError
 import numpy as np
 import networkx as nx
 
@@ -98,15 +99,27 @@ class Benchmark:
     ) -> None:
         if p is not None:
             qaoa.p = p
-        tdvp_res = tdvp_optimize_qaoa(
-            qaoa=qaoa,
-            delta_0=delta_0,
-            Delta=tdvp_stepsize,
-            grad_tol=tdvp_grad_tol,
-            int_mode=tdvp_lineq_solver,
-            max_iter=max_steps,
-        )
-        scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
+        try:
+            tdvp_res = tdvp_optimize_qaoa(
+                qaoa=qaoa,
+                delta_0=delta_0,
+                Delta=tdvp_stepsize,
+                grad_tol=tdvp_grad_tol,
+                int_mode=tdvp_lineq_solver,
+                max_iter=max_steps,
+            )
+        except LinAlgError:
+            tdvp_res = QAOAResult()
+            tdvp_res.success = False
+            tdvp_res.message = "LinAlgError"
+
+        try:
+            scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
+        except LinAlgError:
+            scipy_res = QAOAResult()
+            scipy_res.success = False
+            scipy_res.message = "LinAlgError"
+
         self.results.append(
             {
                 "tdvp": tdvp_res,

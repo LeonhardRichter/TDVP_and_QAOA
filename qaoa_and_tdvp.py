@@ -1,7 +1,7 @@
 # vscode-fold=2
 from time import time as time, time
 from itertools import combinations, product, combinations_with_replacement
-from typing import Callable, Tuple, Iterable, Union
+from typing import Callable, NoReturn, Tuple, Iterable, Union
 
 # import scipy as sp
 from scipy import linalg
@@ -20,7 +20,7 @@ from qutip import expect, Qobj, tensor
 from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
-from quantum import H_exp, minus, q_j, rzz, sx, H_from_qubo
+from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate
 
 
 class QAOA:
@@ -32,7 +32,8 @@ class QAOA:
         hamiltonian: Qobj = None,
         hamiltonian_ground: Qobj = None,
         p: int = 1,
-        grammode: str = "single",
+        A_mode: str = "single",
+        cheat: bool = True,
         mapping=parallel_map,
     ) -> None:
 
@@ -55,17 +56,38 @@ class QAOA:
         #     self._qcH = self._qcHqubo
         #     self._qcB = self._qcBgates
 
-        assert grammode in {"single", "double"}, "grammode must be 'single' or 'double'"
+        if cheat:
+            self._Gij = self._Gij_fast
+            self._grad_element = self._grad_element_fast
+        else:
+            self._Gij = self._Gij_unitary
+            self._grad_element = self._grad_element_unitary
 
-        if grammode == "double":
+        assert A_mode in {"single", "double"}, "grammode must be 'single' or 'double'"
+        if A_mode == "double":
             self._A = self._Adouble
-        if grammode == "single":
+        if A_mode == "single":
             self._A = self._Asingle
 
         assert mapping in {parallel_map, serial_map, ipy_parallel_map}
         self._mapping = mapping
 
         self.mixer = sum(sx(self.n, j) for j in range(self.n))
+
+        self._user_gates = {
+            "RZZ": rzz,
+            "cheat": cheat_gate,
+        }
+
+    # user_gates
+    @property
+    def user_gates(self) -> None:
+        """The user_gates for qaoa."""
+        return self._user_gates
+
+    @user_gates.setter
+    def user_gates(self, value: dict[str, Callable]) -> NoReturn:
+        raise Exception("user_gates are not settable")
 
     # qubo circuit
     @property
@@ -166,11 +188,7 @@ class QAOA:
     # the qaoa parts as QubitCircuits
     def _qcH(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         for j in range(self.n):
             self.num_gates += 1
             qc.add_gate(
@@ -191,24 +209,10 @@ class QAOA:
 
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         self.num_gates += qc.N
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
-
-    def test_step(self, *args):
-        self._num_gates.value += 1
-
-    def test_map(self, *args):
-        self.reset_gate_counter()
-        parallel_map(self.test_step, range(10))
-        res = self._num_gates.value
-        self.reset_gate_counter()
-        return res
 
     # the whole qaoa circuit
     def circuit(
@@ -232,11 +236,7 @@ class QAOA:
 
         # init circuit
         qc = QubitCircuit(n)
-        qc.user_gates = {
-            "RZZ": rzz,
-            "H_{exp}": lambda x: H_exp(x, self.H),
-            "B_{exp}": lambda x: H_exp(x, self.mixer),
-        }
+        qc.user_gates = self.user_gates
         # add the layers before the layer to be inserted
         # note that if no at_layer is given, this will run until layer == p
         for i in range(at_layer):
@@ -285,7 +285,7 @@ class QAOA:
         self,
         left: tuple[tuple[Gate], int, bool],
         right: tuple[tuple[Gate], int, bool],
-        delta,
+        delta: tuple[float],
         pop_layers: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the overlap of two states left and right.
@@ -308,7 +308,7 @@ class QAOA:
         self,
         left: tuple[tuple[Gate], int, bool],
         right: tuple[tuple[Gate], int, bool],
-        delta,
+        delta: tuple[float],
         pop_layers: Tuple[int, int] = None,
     ) -> np.complex_:
         """compute one summand of G_ij, i.e. compute the combined circuit of left and right side and run it on input state.
@@ -324,7 +324,52 @@ class QAOA:
         )  # negative of the delta parameters gives in this case the adjoint gates
         return self.mixer_ground.overlap(qc.run(self.mixer_ground))
 
-    def _Gij(self, ij: tuple[int], delta: tuple[float]) -> np.complex_:
+    def _Gij_fast(
+        self,
+        ij: tuple[int],
+        delta: tuple[float],
+    ) -> np.complex_:
+        """Compute one element of the metric G_ij.
+        This method kind of cheats by ignoring that the Hamiltonian and the mixer are not unitary.
+        Assumes that i<=j, i.e. only the upper triangle of the metric is computed directly. The lower trinalge is computed by hermiticity in the QAOA.G method.
+
+        Args:
+            ij (tuple[int]): indices of the metric element to compute
+            delta (tuple[float]): parameters of the QAOA circuit
+
+        Returns:
+            np.complex_: the matrix element
+        """
+        i, j = ij
+        # define the left and right half of <psi_0|U_i(-delta, left) U_j(delta, right) |psi_0> depending on the given indices.
+        if i <= self.p - 1 and j <= self.p - 1:  # upper left block
+            left = (
+                [Gate("cheat", arg_value=self.mixer)],
+                i % self.p,
+                False,
+            )
+            right = (
+                [Gate("cheat", arg_value=self.mixer)],
+                j % self.p,
+                False,
+            )
+
+        elif i <= self.p - 1 < j:  # upper right block
+            left = ([Gate("cheat", arg_value=self.mixer)], i % self.p, False)
+            right = ([Gate("cheat", arg_value=self.H)], j % self.p, True)
+
+        elif i > self.p - 1 and j > self.p - 1:  # lower right block
+            left = ([Gate("cheat", arg_value=self.H)], i % self.p, True)
+            right = ([Gate("cheat", arg_value=self.H)], j % self.p, True)
+
+        # retrun the product of left and right side and pop the layers in the middle
+        return self._A(left, right, delta, pop_layers=(j + 1, self.p))
+
+    def _Gij_unitary(
+        self,
+        ij: tuple[int],
+        delta: tuple[float],
+    ) -> np.complex_:
         """compute one summand of G_ij, i.e. decide in which part of the matrix the indices lie and compute the corresponding element.
             Assumes that i<=j, i.e. only the upper triangle of the matrix is computed directly. The lower triangle is computed by hermiticity.
 
@@ -466,11 +511,15 @@ class QAOA:
                         pop_layers=(j + 1, p),
                     )
                     for (k, l), (m, n) in product(
-                        combinations(range(3), r=2), repeat=2
+                        combinations(range(n), r=2), repeat=2
                     )  # sum over all possible combinations (k<l) of Z-gates and (m<n) of Z-gates, different orderings are counted twice
                 )
             )
-        return element
+        return (
+            element
+            # + np.sum(np.diagonal(qubo))
+            # + np.sum(qubo - np.diag(np.diagonal(qubo)))
+        )
 
     def gram(
         self,
@@ -500,7 +549,24 @@ class QAOA:
         gram = gram + np.conj(gram.T) - np.diag(gram.diagonal())
         return np.matrix(gram)
 
-    def _grad_element(self, i, delta: tuple[float]) -> np.complex_:
+    def _grad_element_fast(self, i, delta: tuple[float]) -> np.complex_:
+        if i <= self.p - 1:
+            ins_gate = self.mixer
+            inbetw = False
+        if i > self.p - 1:
+            ins_gate = self.H
+            inbetw = True
+
+        left_state = self.circuit(
+            delta,
+            insert_gates=[Gate("cheat", arg_value=ins_gate)],
+            at_layer=i % self.p,
+            inbetween=inbetw,
+        ).run(self.mixer_ground)
+
+        return (-1j * left_state).overlap(self.H * self.state(delta))
+
+    def _grad_element_unitary(self, i, delta: tuple[float]) -> np.complex_:
         """Evaluate the gradient element <d_i Psi|H|Psi> of the qaoa state wrt the i-th parameter.
         TODO: maybe this can be done more efficiently by summing the products of propagators and multiplying the result with mixer_ground. Corresponds to pulling | - > out to the right.
 
@@ -985,7 +1051,9 @@ def tdvp_optimize_qaoa(
             t_span=(0, Delta),
             y0=delta_0,
             method=int_mode,
-            events=[tdvp_terminal, tdvp_max_steps],
+            events=[
+                tdvp_terminal,  # tdvp_max_steps
+            ],
         )
         print("done\n")
         dt = time() - t_0  # time for integration
