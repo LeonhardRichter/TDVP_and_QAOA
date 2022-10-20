@@ -3,7 +3,7 @@ from qaoa_and_tdvp import (
     tdvp_optimize_qaoa,
     scipy_optimize,
 )
-
+from math import prod
 from typing import List, Dict, Any, Union
 import pandas as pd
 import pickle
@@ -14,9 +14,21 @@ import networkx as nx
 
 def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
     qubos = list()
-    for _ in range(num):
+
+    while len(qubos) < num:
         rn = np.random.uniform(-1, 1, size=(size, size))
-        qubos.append((rn + rn.T) / 2)
+        qubo = np.matrix(rn + rn.T) / 2
+        # check if qubo is already in list
+        
+        if len(qubos)== 0:
+            qubos.append(qubo)
+            continue
+            
+        if not prod([np.all(np.isclose(qubo, a)) for a in qubos]):
+            qubos.append(qubo)
+            continue
+
+    qubos = list(qubos)
 
     if num == 1:
         return qubos[0]
@@ -25,14 +37,20 @@ def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
 
 
 def get_connected_rn_graph(
-    number_of_nodes: int, p: float, number_of_graphs: int = 1,
+    number_of_nodes: int,
+    p: float,
+    number_of_graphs: int = 1,
 ) -> Union[nx.Graph, list[nx.Graph]]:
     assert 0 <= p <= 1, "p must be between 0 and 1"
-    selected_graphs = []
+    selected_graphs = set()
+
     while len(selected_graphs) < number_of_graphs:
         graph = nx.fast_gnp_random_graph(number_of_nodes, p)
         if nx.is_connected(graph):
-            selected_graphs.append(graph)
+            selected_graphs.add(graph)
+
+    selected_graphs = list(selected_graphs)
+
     if number_of_graphs == 1:
         return selected_graphs[0]
     if number_of_graphs != 1:
