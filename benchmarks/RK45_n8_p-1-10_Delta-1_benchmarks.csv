@@ -1,0 +1,47 @@
+,tdvp,scipy,p,delta_0,tdvp_stepsize,tdvp_grad_tol,tdvp_lineq_solver
+0,"
+        tdvp_optimizer with circuit gradient evaluation and RK45 as integration mode terminated with sucess with message
+        ""The solver successfully reached the end of the integration interval.""
+        This took 6.89 seconds
+        
+            optimal parameters: (1.6638664988609988, 1.0608217154262751)
+                 optimal value: -0.8097127141123611
+        maximal ground overlap: 0.003324517276526247
+           number of fun calls: 26
+               number of steps: 30
+               number of gates: 12880
+        ","
+        scipy_cobyla terminated with sucess with message
+        ""Optimization terminated successfully.""
+        This took 1.37 seconds
+        
+            optimal parameters: [2.42873323 0.67850044]
+                 optimal value: -4.621420140261724
+        maximal ground overlap: 0.001279995450448292
+           number of fun calls: 33
+               number of steps: None
+               number of gates: 1452
+        ",1,"(1, 1)",1,0.001,RK45
+1,"
+        tdvp_optimizer with circuit gradient evaluation and RK45 as integration mode terminated with sucess with message
+        ""The solver successfully reached the end of the integration interval.""
+        This took 19.83 seconds
+        
+            optimal parameters: (0.7160657114628679, 1.0460872869341118, 0.9215098051988838, 1.0459167504119131)
+                 optimal value: -5.121213902695029
+        maximal ground overlap: 0.020512524673161985
+           number of fun calls: 26
+               number of steps: 30
+               number of gates: 61222
+        ","
+        scipy_cobyla terminated with sucess with message
+        ""Optimization terminated successfully.""
+        This took 19.38 seconds
+        
+            optimal parameters: [0.90094305 0.23783611 0.19213977 0.48102807]
+                 optimal value: -17.255061078550064
+        maximal ground overlap: 0.8274272494865149
+           number of fun calls: 281
+               number of steps: None
+               number of gates: 24728
+        ",2,"(1, 1, 1, 1)",1,0.001,RK45
