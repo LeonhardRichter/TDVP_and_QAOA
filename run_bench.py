@@ -24,28 +24,25 @@ import plotly as py
 import pandas as pd
 
 
-n = 4
-with open(f"./instances/n{n}_instances.p", "rb") as f:
-    instances = pickle.load(f)
-delta = tuple(1 for _ in range(2 * n))
-bench = Benchmark()
-
-
-Delta = 0.1
+# Delta = 0.1
 min_p = 1
-max_p = 8
+max_p = 10
 
 
-for n in range(7, 8):
-    with open(f"./instances/n{n}_instances.p", "rb") as f:
-        instances = pickle.load(f)
+for n in range(8, 11):
+    try:
+        with open(f"./instances/n{n}_instances.p", "rb") as f:
+            instances = pickle.load(f)
+    except FileNotFoundError:
+        print(f"File ./instances/n{n}_instances.p")
+
     delta = tuple(1 for _ in range(2 * n))
     bench = Benchmark()
 
     for num, i in enumerate(instances):
         print(f"instance {num}/{len(instances)}")
         for p in range(min_p, max_p + 1):
-            print(f"\t p = {p}/{max_p}")
+            print(f"\t p = {p}/{max_p}", end="\r")
             bench.run(
                 qaoa=QAOA(i.qubo, p=p),
                 delta_0=tuple(1 for _ in range(2 * p)),

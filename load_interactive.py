@@ -23,7 +23,3 @@ from benchmark import (
 from qutip.parallel import parallel_map, serial_map
 
 # %%
-rng.sample
-np.eye
-np.all
-np.isclose
