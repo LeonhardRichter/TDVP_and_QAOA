@@ -68,3 +68,27 @@
                number of steps: None
                number of gates: 48720
         ",3,"(1, 1, 1, 1, 1, 1)",1,0.001,RK45
+3,"
+        tdvp_optimizer with circuit gradient evaluation and RK45 as integration mode terminated with sucess with message
+        ""The solver successfully reached the end of the integration interval.""
+        This took 113.57 seconds
+        
+            optimal parameters: (0.9481215538147488, 0.9300828831393436, 1.0943294561837962, 1.0985117742592703, 0.8999416751833731, 1.0734067774984637, 0.8121724827400743, 0.7126550810820736)
+                 optimal value: -7.381933344686222
+        maximal ground overlap: 0.42280825018306006
+           number of fun calls: 68
+               number of steps: 79
+               number of gates: 735656
+        ","
+        scipy_cobyla terminated with no sucess with message
+        ""Maximum number of function evaluations has been exceeded.""
+        This took 113.58 seconds
+        
+            optimal parameters: [2.43794516 2.46700923 0.4291203  1.10844456 0.61951178 0.62381058
+ 0.55750784 0.5854959 ]
+                 optimal value: -8.867095673137747
+        maximal ground overlap: 0.95926653131886
+           number of fun calls: 1000
+               number of steps: None
+               number of gates: 140000
+        ",4,"(1, 1, 1, 1, 1, 1, 1, 1)",1,0.001,RK45
