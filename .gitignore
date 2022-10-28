@@ -6,6 +6,7 @@ pyproject.toml
 .idea
 plots/
 
+.p
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
