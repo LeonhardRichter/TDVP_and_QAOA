@@ -409,7 +409,7 @@ class QAOA:
                     left=([Gate("X", [k])], i % p, False),  # insert X after B
                     right=([Gate("Z", [l])], j % p, True),  # insert Z inbetween H and B
                     delta=delta,
-                    pop_layers=(j + 1, p),
+                    pop_layers=(j%p + 1, p),
                 )
                 for k, l in product(range(n), repeat=2)
             ) + (1 / 4) * sum(
@@ -424,7 +424,7 @@ class QAOA:
                     ),  # insert two Z's inbetween H and B
                     delta=delta,
                     pop_layers=(
-                        j + 1,
+                        j%p + 1,
                         p,
                     ),  # remove gates that will cancel each other out due to the adjoint circuit.
                 )
@@ -447,7 +447,7 @@ class QAOA:
                         left=([Gate("Z", [k])], i % p, True),  # insert Z after H
                         right=([Gate("Z", [l])], j % p, True),  # insert Z after H
                         delta=delta,
-                        pop_layers=(j + 1, p),
+                        pop_layers=(j%p + 1, p),
                     )
                     for k, l in product(
                         range(n), repeat=2
@@ -468,7 +468,7 @@ class QAOA:
                         ),  # insert two Z's after H
                         right=([Gate("Z", [m])], j % p, True),  # insert Z after H
                         delta=delta,
-                        pop_layers=(j + 1, p),
+                        pop_layers=(j%p + 1, p),
                     )
                     for (k, l), m in product(
                         combinations(range(n), r=2), range(n)
@@ -489,7 +489,7 @@ class QAOA:
                             True,
                         ),  # insert two Z's after H
                         delta=delta,
-                        pop_layers=(j + 1, p),
+                        pop_layers=(j%p + 1, p),
                     )
                     for k, (l, m) in product(
                         range(n), combinations(range(n), r=2)
@@ -513,7 +513,7 @@ class QAOA:
                             True,
                         ),  # insert two Z's after H
                         delta=delta,
-                        pop_layers=(j + 1, p),
+                        pop_layers=(j%p + 1, p),
                     )
                     for (k, l), (m, n) in product(
                         combinations(range(n), r=2), repeat=2
