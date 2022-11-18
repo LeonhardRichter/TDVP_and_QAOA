@@ -1,20 +1,25 @@
 # vscode-fold=2
+
+# tested in python version 3.10.6
+
 from time import time as time, time
 from itertools import combinations, product, combinations_with_replacement
 from typing import Callable, NoReturn, Tuple, Iterable, Union
 
-# import scipy as sp
+# scipy version 1.9.1
 from scipy import linalg
 from scipy import integrate
 from scipy.optimize import minimize
 
+# numpy version 1.21.6
 import numpy as np
 from numpy.typing import NDArray
 
 from multiprocessing import Value
 
-from qutip.parallel import parallel_map, serial_map
+# qutip version 4.7.0 (Cython version 0.29.30)
 from qutip import expect, Qobj, tensor
+from qutip.parallel import parallel_map, serial_map
 
 # from qutip.qip.operations import expand_operator, rz
 from qutip.qip.circuit import QubitCircuit, Gate
