@@ -112,9 +112,20 @@ class Benchmark:
         tdvp_grad_tol: float = None,
         tdvp_lineq_solver: str = None,
         max_steps: int = 200,
+        record_path:bool = False,
     ) -> None:
         if p is not None:
             qaoa.p = p
+
+        try:
+            scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa, record_path=record_path)
+        except LinAlgError:
+            scipy_res = QAOAResult()
+            scipy_res.success = False
+            scipy_res.message = "LinAlgError"
+            scipy_res.prob = 0
+            scipy_res.qaoa = qaoa
+
         try:
             tdvp_res = tdvp_optimize_qaoa(
                 qaoa=qaoa,
@@ -131,14 +142,6 @@ class Benchmark:
             tdvp_res.prob = 0
             tdvp_res.qaoa = qaoa
 
-        try:
-            scipy_res = scipy_optimize(delta_0=delta_0, qaoa=qaoa)
-        except LinAlgError:
-            scipy_res = QAOAResult()
-            scipy_res.success = False
-            scipy_res.message = "LinAlgError"
-            scipy_res.prob = 0
-            scipy_res.qaoa = qaoa
 
         self.results.append(
             {

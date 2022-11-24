@@ -806,15 +806,27 @@ def scipy_optimize(
     qaoa: QAOA,
     delta_0: tuple[float],
     max_iter: int = 1000,
+    record_path:bool = False,
 ) -> QAOAResult:
     qaoa.reset_gate_counter()
     opt_result = QAOAResult()
     t_0 = time()
 
+    delta_path = [delta_0,]
+    def update_path(delta):
+        delta_path.append(delta)
+    def do_nothing(delta):
+        pass
+    if record_path:
+        callback = update_path
+    else:
+        callback = do_nothing
+
     min_result = minimize(
         qaoa.expectation,
         x0=np.array(delta_0),
         method="COBYLA",
+        callback=callback,
         options={"maxiter": max_iter},
     )
     num_gates = qaoa.num_gates
@@ -822,6 +834,8 @@ def scipy_optimize(
 
     opt_result.orig_result = min_result
     dt = time() - t_0
+    if record_path:
+        opt_result.parameter_path = delta_path
     opt_result.qaoa = qaoa
     opt_result.duration = dt
     opt_result.success = min_result.success
@@ -964,6 +978,7 @@ def tdvp_optimize_qaoa(
     int_mode: str = "RK45",
     grad_tol: float = 1e-3,
     max_iter: int = 1000,
+    num_of_path_points: int = 0,
 ) -> QAOAResult:  # rhs_mode: "qaoa", "lineq", "lineq_qaoa"
     """optimize an qaoa instance by tdvp for imaginary time evolution.
 
@@ -1049,6 +1064,7 @@ def tdvp_optimize_qaoa(
         result.num_steps = rhs_step  # number of steps
 
     if int_mode != "euler":
+        eval_points = np.linspace(0,Delta,num_of_path_points)
         t_0 = time()
         # solve the ODE
         int_result = integrate.solve_ivp(
@@ -1056,6 +1072,7 @@ def tdvp_optimize_qaoa(
             t_span=(0, Delta),
             y0=delta_0,
             method=int_mode,
+            t_eval=eval_points,
             events=[
                 tdvp_terminal,  # tdvp_max_steps
             ],
@@ -1069,8 +1086,10 @@ def tdvp_optimize_qaoa(
         result.parameters = tuple(par[-1] for par in int_result.y)  # last step
         result.message = int_result.message  # message from the solver
         result.num_fun_calls = int_result.nfev  # number of function calls
-
+        if num_of_path_points >0:
+            result.parameter_path = int_result.y
     # save the rest of the result, same for both sovlers
+
     result.qaoa = qaoa
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
