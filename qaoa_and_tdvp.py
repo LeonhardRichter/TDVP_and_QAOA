@@ -29,7 +29,7 @@ from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate
 
 
 class QAOA:
-    _num_gates = Value("i", 0)
+    # _num_gates = Value("i", 0)
 
     def __init__(
         self,
@@ -110,14 +110,14 @@ class QAOA:
         self.mixer = sum(sx(self.n, j) for j in range(self.n))
 
     # num_gates
-    @property
-    def num_gates(self) -> int:
-        """The number of gates applied in one run of the circuit."""
-        return self._num_gates.value
-
-    @num_gates.setter
-    def num_gates(self, value: int) -> None:
-        self._num_gates.value = value
+    # @property
+    # def num_gates(self) -> int:
+    #     """The number of gates applied in one run of the circuit."""
+    #     return self._num_gates.value
+    #
+    # @num_gates.setter
+    # def num_gates(self, value: int) -> None:
+    #     self._num_gates.value = value
 
     # mapping = ipy_parallel_map
     @property
@@ -187,15 +187,12 @@ class QAOA:
 
     ##############################################################################################
 
-    def reset_gate_counter(self) -> None:
-        self.num_gates = 0
-
     # the qaoa parts as QubitCircuits
     def _qcH(self, gamma: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = self.user_gates
         for j in range(self.n):
-            self.num_gates += 1
+            # self.num_gates += 1
             qc.add_gate(
                 "RZ",
                 targets=[j],
@@ -203,7 +200,7 @@ class QAOA:
                 arg_label=f"2*{round(gamma, 2)}*(Q_{{{j}{j}}}+Q_{j})",
             )
         for j, k in combinations(range(self.n), 2):
-            self.num_gates += 1
+            # self.num_gates += 1
             qc.add_gate(
                 "RZZ",
                 targets=[j, k],
@@ -215,7 +212,7 @@ class QAOA:
     def _qcB(self, beta: float) -> QubitCircuit:
         qc = QubitCircuit(self.n)
         qc.user_gates = self.user_gates
-        self.num_gates += qc.N
+        # self.num_gates += qc.N
         qc.add_1q_gate("RX", arg_value=2 * beta, arg_label=f"2*{round(beta, 2)}")
         return qc
 
@@ -262,7 +259,7 @@ class QAOA:
                 qc.add_circuit(self._qcB(delta[at_layer]))
                 for gate in insert_gates:
                     qc.add_gate(gate)
-            self.num_gates += len(insert_gates)
+            # self.num_gates += len(insert_gates)
             # add the rest of the qaoa layers
             # check if we need to pop layers
             if pop_layers is not None:
@@ -645,17 +642,17 @@ class QAOAResult:
         self._optimal_parameters = None
         self._orig_result = None
         self._prob = None
-        self._num_gates = None
+        # self._num_gates = None
 
-    # num_gates
-    @property
-    def num_gates(self) -> type:
-        """The num_gates property."""
-        return self._num_gates
-
-    @num_gates.setter
-    def num_gates(self, value: type) -> None:
-        self._num_gates = value
+    # # num_gates
+    # @property
+    # def num_gates(self) -> type:
+    #     """The num_gates property."""
+    #     return self._num_gates
+    #
+    # @num_gates.setter
+    # def num_gates(self, value: type) -> None:
+    #     self._num_gates = value
 
     # orig_result is the result of the optimizer
     @property
@@ -798,7 +795,6 @@ class QAOAResult:
         maximal ground overlap: {self.prob}
            number of fun calls: {self.num_fun_calls}
                number of steps: {self.num_steps}
-               number of gates: {self.num_gates}
         """
 
 
@@ -808,7 +804,7 @@ def scipy_optimize(
     max_iter: int = 1000,
     record_path:bool = False,
 ) -> QAOAResult:
-    qaoa.reset_gate_counter()
+    # qaoa.reset_gate_counter()
     opt_result = QAOAResult()
     t_0 = time()
 
@@ -829,8 +825,8 @@ def scipy_optimize(
         callback=callback,
         options={"maxiter": max_iter},
     )
-    num_gates = qaoa.num_gates
-    qaoa.reset_gate_counter()
+    # num_gates = qaoa.num_gates
+    # qaoa.reset_gate_counter()
 
     opt_result.orig_result = min_result
     dt = time() - t_0
@@ -849,7 +845,7 @@ def scipy_optimize(
         pass
     opt_result.state = qaoa.state(opt_result.parameters)
     opt_result.optimizer_name = "scipy_cobyla"
-    opt_result.num_gates = num_gates
+    # opt_result.num_gates = num_gates
     print("Done Scipy_optim\n")
     return opt_result
 
@@ -872,6 +868,26 @@ def finitediff(
 def gen_grad(
     pars: tuple[float],
     qaoa: QAOA,
+) -> np.matrix:
+    """Generate gradient for given parameters and QAOA instance. Uses finite differences.
+
+    Args:
+        pars (tuple[float]): Parameters for which to generate the gradient.
+        qaoa (QAOA): QAOA instance.
+
+    Returns:
+        np.matrix: Gradient.
+    """
+    dpsi = finitediff(qaoa.state)
+    p = qaoa.p
+    out = np.matrix(
+        [(dpsi(pars)[k].overlap(qaoa.H * qaoa.state(pars))) for k in range(2 * p)]
+    )
+    return out
+
+def gen_grad_energy(
+        pars: tuple[float],
+        qaoa: QAOA,
 ) -> np.matrix:
     """Generate gradient for given parameters and QAOA instance. Uses finite differences.
 
@@ -970,6 +986,53 @@ def qaoa_lineq_tdvp_rhs(t: float, x: Tuple[float], qaoa: QAOA) -> np.ndarray:
     ).flatten()
 
 
+def gradient_descent(
+    qaoa: QAOA,
+    delta_0: tuple[float],
+    max_iter: int = 1000,
+    tol: float = 1e-3,
+    Delta: float = 0.01,
+    num_of_path_points: int = 0,
+) ->QAOAResult:
+
+    assert max_iter > 0
+
+    t_0 = time()
+    delta = delta_0
+    step = 0
+    grad = tol + 1
+    fun_calls = 0
+    p = qaoa.p
+    # perform the solving loop
+    while step < max_iter:
+        grad = np.matrix(finitediff(qaoa.expectation)(delta))
+        fun_calls += 2*p*(2*p+1) # 2p for each parameter component of the gradient, one for the qaoa state, that 2p times for each direction
+        delta = tuple((delta - Delta * grad).tolist()[0])
+        step += 1
+        if linalg.norm(grad) < tol:  # break when gradient is small enough
+            break
+    dt = time() - t_0  # time for integration
+    print("done\n")
+    # save the result
+    result = QAOAResult()
+    result.orig_result = None
+    result.success = (
+            linalg.norm(grad) < tol
+    )  # success of integration
+    result.parameters = delta  # last step
+    result.message = f"Gradient descent solver terminated with \
+        {'success' if result.success else 'no success'} after {step} steps."  # message from the solver
+    result.num_steps = step  # number of steps
+    result.qaoa = qaoa
+    result.duration = dt  # time for integration
+    result.optimizer_name = f"gradient_descent with general gradient evaluation"
+    result.state = qaoa.state(result.parameters)  # final state
+    result.value = expect(qaoa.H, result.state) # expectation value of the optimal state
+
+    return result
+
+
+
 def tdvp_optimize_qaoa(
     qaoa: QAOA,
     delta_0: tuple[float],
@@ -1002,7 +1065,7 @@ def tdvp_optimize_qaoa(
         "qaoa_lineq",
     }, "rhs_mode must be one of 'qaoa', 'gen' or 'qaoa_lineq'"
 
-    qaoa.reset_gate_counter()
+    # qaoa.reset_gate_counter()
 
     rhs_step = 0
     if rhs_mode == "qaoa":
@@ -1041,6 +1104,8 @@ def tdvp_optimize_qaoa(
 
     tdvp_max_steps.terminal = True
 
+    result = QAOAResult()  # create result object
+
     if int_mode == "euler":
         t_0 = time()
         delta = delta_0
@@ -1053,7 +1118,6 @@ def tdvp_optimize_qaoa(
         dt = time() - t_0  # time for integration
         print("done\n")
         # save the result
-        result = QAOAResult()
         result.orig_result = None
         result.success = (
             linalg.norm(qaoa.grad(delta)) < grad_tol
@@ -1061,7 +1125,6 @@ def tdvp_optimize_qaoa(
         result.parameters = delta  # last step
         result.message = f"Euler solver terminated with \
         {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
-        result.num_steps = rhs_step  # number of steps
 
     if int_mode != "euler":
         eval_points = np.linspace(0,Delta,num_of_path_points)
@@ -1080,7 +1143,6 @@ def tdvp_optimize_qaoa(
         print("done\n")
         dt = time() - t_0  # time for integration
         # save the result
-        result = QAOAResult()  # create result object
         result.orig_result = int_result
         result.success = int_result.success  # success of integration
         result.parameters = tuple(par[-1] for par in int_result.y)  # last step
@@ -1095,11 +1157,8 @@ def tdvp_optimize_qaoa(
     result.num_steps = rhs_step  # number of steps
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode"
     result.state = qaoa.state(result.parameters)  # final state
-    result.value = qaoa.expectation(
-        result.parameters
-    )  # expectation value of the optimal state
-    result.num_gates = qaoa.num_gates  # number of gates
+    result.value = expect(qaoa.H, result.state) # expectation value of the optimal state
 
-    qaoa.reset_gate_counter()
+    # qaoa.reset_gate_counter()
 
     return result
