@@ -1,6 +1,7 @@
 from itertools import combinations, permutations
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from typing import List
 from qutip import sigmaz, sigmax, basis, tensor, qeye, Qobj
 from qutip.qip.operations import expand_operator, rz
 
@@ -64,3 +65,22 @@ def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
         # + qconstant
     )
     return H
+
+def groundspace(H:Qobj):
+    eigenenergies, eigenstates = H.eigenstates(sort='low')
+    groundenergy = eigenenergies[0]
+
+    num_of_eigenstates = 0
+    for e in eigenenergies:
+        if e==groundenergy:
+            num_of_eigenstates +=1
+        if e != groundenergy:
+            break
+    return groundenergy, eigenstates[:num_of_eigenstates]
+
+def groundspace_overlap(groundstates:List[Qobj], state:Qobj):
+    return  sum(abs(g.overlap(state))**2 for g in groundstates)
+
+def groundspace_sharpness(groundstates:List[Qobj], state:Qobj):
+    P_0 = sum(g*g.dag() for g in groundstates)
+    return math.sqrt(variance(P_0,state))

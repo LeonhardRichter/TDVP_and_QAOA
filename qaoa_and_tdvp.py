@@ -4,7 +4,7 @@
 
 from time import time
 from itertools import combinations, product, combinations_with_replacement
-from typing import Callable, NoReturn, Tuple, Iterable, Union
+from typing import Callable, NoReturn, Tuple, Iterable, Union, Any
 
 # scipy version 1.9.1
 from scipy import linalg
@@ -25,7 +25,7 @@ from qutip.parallel import parallel_map, serial_map
 from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
-from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate
+from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate, groundspace
 
 
 class QAOA:
@@ -83,6 +83,15 @@ class QAOA:
             "RZZ": rzz,
             "cheat": cheat_gate,
         }
+        self._groundspace = None
+
+    # groundspace
+    @property
+    def groundspace(self) -> list[Qobj]:
+        """The groundspace property."""
+        if self._groundspace is None:
+            self._H_ground, self._groundspace = groundspace(self.H)
+        return self._groundspace
 
     # user_gates
     @property
@@ -144,7 +153,7 @@ class QAOA:
     def H_ground(self) -> Qobj:
         """The H_ground property."""
         if self._H_ground is None:
-            self._H_ground = self.H.groundstate()[1]
+            self._H_ground, self._groundspace = groundspace(self.H)
         return self._H_ground
 
     @H_ground.setter
@@ -467,9 +476,8 @@ class QAOA:
                         delta=delta,
                         pop_layers=(j % p + 1, p),
                     )
-                    for (k, l), m in product(
-                        combinations(range(n), r=2), range(n)
-                    )  # sum over all possible combinations (k<l) of Z-gates and (m) X Gates, different orderings are counted twice
+                    for (k, l), m in product(combinations(range(n), r=2), range(n))
+                    # sum over all possible combinations (k<l) of Z-gates and (m) X Gates, different orderings are counted twice
                 )
                 - (1 / 8)
                 * sum(
@@ -488,9 +496,8 @@ class QAOA:
                         delta=delta,
                         pop_layers=(j % p + 1, p),
                     )
-                    for k, (l, m) in product(
-                        range(n), combinations(range(n), r=2)
-                    )  # sum over all possible combinations (l<m) of Z-gates and (k) X Gates, different orderings are counted twice
+                    for k, (l, m) in product(range(n), combinations(range(n), r=2))
+                    # sum over all possible combinations (l<m) of Z-gates and (k) X Gates, different orderings are counted twice
                 )
                 + (1 / 16)
                 * sum(
@@ -512,9 +519,8 @@ class QAOA:
                         delta=delta,
                         pop_layers=(j % p + 1, p),
                     )
-                    for (k, l), (m, n) in product(
-                        combinations(range(n), r=2), repeat=2
-                    )  # sum over all possible combinations (k<l) of Z-gates and (m<n) of Z-gates, different orderings are counted twice
+                    for (k, l), (m, n) in product(combinations(range(n), r=2), repeat=2)
+                    # sum over all possible combinations (k<l) of Z-gates and (m<n) of Z-gates, different orderings are counted twice
                 )
             )
         return (
@@ -641,7 +647,7 @@ class QAOAResult:
         self._optimal_state = None
         self._optimal_parameters = None
         self._orig_result = None
-        self._prob = None
+        self._times = None
         # self._num_gates = None
 
     # # num_gates
@@ -655,6 +661,16 @@ class QAOAResult:
     #     self._num_gates = value
 
     # orig_result is the result of the optimizer
+    # times is the time at which the optimizer returned a result
+    @property
+    def times(self) -> list[float]:
+        """The time points corresponding to the points in parameter_path."""
+        return self._times
+
+    @times.setter
+    def times(self, value: list[float]) -> None:
+        self._times = value
+
     @property
     def orig_result(self):
         """The orig_result property."""
@@ -768,22 +784,6 @@ class QAOAResult:
     def message(self, value: str) -> None:
         self._message = value
 
-    # problem
-    @property
-    def prob(self) -> float:
-        """The maximal overlap with one of the ground states."""
-        if self._prob is None:
-            eigenstates = self.qaoa.H.eigenstates()
-            groundstates = eigenstates[1][np.where(eigenstates[0] == eigenstates[0][0])]
-            self.prob = max(
-                abs(self.state.overlap(ground)) ** 2 for ground in groundstates
-            )
-        return self._prob
-
-    @prob.setter
-    def prob(self, value: float) -> None:
-        self._prob = value
-
     def __repr__(self) -> str:
         return f"""
         {self.optimizer_name} terminated with {'no ' if not self.success else ''}sucess with message
@@ -792,7 +792,6 @@ class QAOAResult:
         
             optimal parameters: {self.parameters}
                  optimal value: {self.value}
-        maximal ground overlap: {self.prob}
            number of fun calls: {self.num_fun_calls}
                number of steps: {self.num_steps}
         """
@@ -802,17 +801,23 @@ def scipy_optimize(
     qaoa: QAOA,
     delta_0: tuple[float],
     max_iter: int = 1000,
-    record_path:bool = False,
+    record_path: bool = False,
+    tol: float = 1e-3,
 ) -> QAOAResult:
     # qaoa.reset_gate_counter()
     opt_result = QAOAResult()
     t_0 = time()
 
-    delta_path = [delta_0,]
+    delta_path = [
+        delta_0,
+    ]
+
     def update_path(delta):
-        delta_path.append(delta)
+        delta_path.append(tuple(delta))
+
     def do_nothing(delta):
         pass
+
     if record_path:
         callback = update_path
     else:
@@ -823,8 +828,13 @@ def scipy_optimize(
         x0=np.array(delta_0),
         method="COBYLA",
         callback=callback,
-        options={"maxiter": max_iter},
+        tol=tol,
+        options={
+            "maxiter": max_iter,
+        },
     )
+    if not record_path:
+        delta_path.append(tuple(min_result.x))
     # num_gates = qaoa.num_gates
     # qaoa.reset_gate_counter()
 
@@ -835,7 +845,8 @@ def scipy_optimize(
     opt_result.qaoa = qaoa
     opt_result.duration = dt
     opt_result.success = min_result.success
-    opt_result.parameters = min_result.x
+    opt_result.parameters = tuple(min_result.x)
+    opt_result.parameter_path = delta_path
     opt_result.message = min_result.message
     opt_result.value = min_result.fun
     opt_result.num_fun_calls = min_result.nfev
@@ -850,7 +861,31 @@ def scipy_optimize(
     return opt_result
 
 
+def del_j(
+    i: int,
+    func: Callable[[tuple[float]], Qobj],
+    params: tuple[float],
+    epsilon: float = 1e-10,
+):
+    p_params: tuple[float] = params[:i] + (params[i] + epsilon,) + params[i + 1 :]
+    return (func(p_params) - func(params)) / epsilon
+
+
 def finitediff(
+    func: Callable[[tuple[float]], Qobj | Any], epsilon: float = 1e-10
+) -> Callable[[tuple[float]], Qobj | Any]:
+    def dfunc(params: tuple[float]) -> list:
+        num_pars = int(len(params))
+        return parallel_map(
+            task=del_j,
+            values=range(num_pars),
+            task_kwargs={"func": func, "params": params, "epsilon": epsilon},
+        )
+
+    return dfunc
+
+
+def finitediff_serial(
     func: Callable[[tuple[float]], Qobj], epsilon: float = 1e-10
 ) -> Callable[[tuple[float]], list[Qobj]]:
     def dfunc(params) -> list:
@@ -885,9 +920,10 @@ def gen_grad(
     )
     return out
 
+
 def gen_grad_energy(
-        pars: tuple[float],
-        qaoa: QAOA,
+    pars: tuple[float],
+    qaoa: QAOA,
 ) -> np.matrix:
     """Generate gradient for given parameters and QAOA instance. Uses finite differences.
 
@@ -991,34 +1027,38 @@ def gradient_descent(
     delta_0: tuple[float],
     max_iter: int = 1000,
     tol: float = 1e-3,
-    Delta: float = 0.01,
-    num_of_path_points: int = 0,
-) ->QAOAResult:
-
+    Delta: float = 0.1,
+) -> QAOAResult:
     assert max_iter > 0
 
     t_0 = time()
     delta = delta_0
+    path = list()
     step = 0
     grad = tol + 1
     fun_calls = 0
     p = qaoa.p
+    dH = finitediff(qaoa.expectation)
     # perform the solving loop
     while step < max_iter:
-        grad = np.matrix(finitediff(qaoa.expectation)(delta))
-        fun_calls += 2*p*(2*p+1) # 2p for each parameter component of the gradient, one for the qaoa state, that 2p times for each direction
+        print(f"step {step}", end="\r")
+        grad = np.matrix(dH(delta))
+        fun_calls += (
+            2 * p * (2 * p + 1)
+        )  # 2p for each parameter component of the gradient, one for the qaoa state, that 2p times for each direction
         delta = tuple((delta - Delta * grad).tolist()[0])
+        path.append(delta)
         step += 1
         if linalg.norm(grad) < tol:  # break when gradient is small enough
             break
     dt = time() - t_0  # time for integration
+
     print("done\n")
     # save the result
     result = QAOAResult()
     result.orig_result = None
-    result.success = (
-            linalg.norm(grad) < tol
-    )  # success of integration
+    result.success = linalg.norm(grad) < tol  # success of integration
+    result.parameter_path = path
     result.parameters = delta  # last step
     result.message = f"Gradient descent solver terminated with \
         {'success' if result.success else 'no success'} after {step} steps."  # message from the solver
@@ -1027,10 +1067,11 @@ def gradient_descent(
     result.duration = dt  # time for integration
     result.optimizer_name = f"gradient_descent with general gradient evaluation"
     result.state = qaoa.state(result.parameters)  # final state
-    result.value = expect(qaoa.H, result.state) # expectation value of the optimal state
+    result.value = expect(
+        qaoa.H, result.state
+    )  # expectation value of the optimal state
 
     return result
-
 
 
 def tdvp_optimize_qaoa(
@@ -1039,9 +1080,9 @@ def tdvp_optimize_qaoa(
     Delta: float = 0.01,
     rhs_mode: str = "qaoa",
     int_mode: str = "RK45",
-    grad_tol: float = 1e-3,
+    grad_tol: float | None = 1e-3,
     max_iter: int = 1000,
-    num_of_path_points: int = 0,
+    num_of_path_points: int = 1,
 ) -> QAOAResult:  # rhs_mode: "qaoa", "lineq", "lineq_qaoa"
     """optimize an qaoa instance by tdvp for imaginary time evolution.
 
@@ -1127,29 +1168,50 @@ def tdvp_optimize_qaoa(
         {'success' if result.success else 'no success'} after {rhs_step} steps."  # message from the solver
 
     if int_mode != "euler":
-        eval_points = np.linspace(0,Delta,num_of_path_points)
-        t_0 = time()
+        t_start = time()
+        iter = 0
+        if grad_tol is None:
+            max_iter = 1
+        go_on = True
+        delta = delta_0
+        t_0 = 0
+        t_1 = Delta
+        nfev = 0
+        times = list()
+        path = list()
         # solve the ODE
-        int_result = integrate.solve_ivp(
-            fun=tdvp_rhs,
-            t_span=(0, Delta),
-            y0=delta_0,
-            method=int_mode,
-            t_eval=eval_points,
-            events=[
-                tdvp_terminal,  # tdvp_max_steps
-            ],
-        )
+        while go_on and iter < max_iter:
+            iter += 1
+            int_result = integrate.solve_ivp(
+                fun=tdvp_rhs,
+                t_span=(t_0, t_1),
+                y0=delta,
+                method=int_mode,
+                # t_eval=eval_points,
+                events=[
+                    tdvp_terminal,  # tdvp_max_steps
+                ],
+            )
+            nfev += int_result.nfev
+            times.extend(int_result.t)
+            path.extend(zip(int_result.y[0], int_result.y[1]))
+            if int_result.status == 1:
+                go_on = False
+            else:
+                print("reached the end of the interval, extending ...", end="\n")
+                t_1 = 2 * t_1
+            delta = path[-1]
+
+        dt = time() - t_start  # time for integration
         print("done\n")
-        dt = time() - t_0  # time for integration
         # save the result
         result.orig_result = int_result
         result.success = int_result.success  # success of integration
-        result.parameters = tuple(par[-1] for par in int_result.y)  # last step
+        result.times = times  # time steps
+        result.parameter_path = path
+        result.parameters = result.parameter_path[-1]  # last step
         result.message = int_result.message  # message from the solver
-        result.num_fun_calls = int_result.nfev  # number of function calls
-        if num_of_path_points >0:
-            result.parameter_path = int_result.y
+        result.num_fun_calls = nfev  # number of function calls
     # save the rest of the result, same for both sovlers
 
     result.qaoa = qaoa
@@ -1157,7 +1219,9 @@ def tdvp_optimize_qaoa(
     result.num_steps = rhs_step  # number of steps
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode"
     result.state = qaoa.state(result.parameters)  # final state
-    result.value = expect(qaoa.H, result.state) # expectation value of the optimal state
+    result.value = expect(
+        qaoa.H, result.state
+    )  # expectation value of the optimal state
 
     # qaoa.reset_gate_counter()
 
