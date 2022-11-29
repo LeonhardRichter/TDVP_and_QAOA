@@ -19,6 +19,7 @@ class MaxCut:
         if draw:
             nx.draw(self.graph, with_labels=True)
 
+    
     # qubo
     @property
     def qubo(self) -> NDArray:
