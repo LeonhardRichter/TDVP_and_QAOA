@@ -1213,14 +1213,14 @@ def tdvp_optimize_qaoa(
         result.num_fun_calls = nfev  # number of function calls
     # save the rest of the result, same for both sovlers
 
-    result.qaoa = qaoa
+    # result.qaoa = qaoa
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode"
     print(result.parameters)
-    result.state = qaoa.state(result.parameters)  # final state
+    # result.state = qaoa.state(result.parameters)  # final state
     result.value = expect(
-        qaoa.H, result.state
+        qaoa.H, qaoa.state(result.parameters)
     )  # expectation value of the optimal state
 
     # qaoa.reset_gate_counter()

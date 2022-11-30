@@ -14,7 +14,6 @@ from scipy.linalg import LinAlgError
 import numpy as np
 import networkx as nx
 from MaxCut import MaxCut
-import os
 
 
 def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
@@ -165,9 +164,17 @@ class Benchmark:
         pickle.dump(self, open(f"..//benchmarks//{filename}.p", "wb"))
 
 
+class bench_result(dict):
+    def __init_subclass__(cls) -> None:
+        return super().__init_subclass__()
+
+    def __repr__(self) -> str:
+        return f'{self.get("algorithm", np.NaN)}, C={self.get("value", np.NaN)}, delta={self.get("delta", np.NaN)}'
+
+
 def benchmark_pandas(
-    instance: MaxCut | pd.DataFrame,
-    p: int,
+    input: MaxCut | pd.DataFrame | pd.Series,
+    p: int | None = None,
     optimizers: dict[str, bool] = {
         "tdvp": True,
         "scipy": True,
@@ -176,6 +183,7 @@ def benchmark_pandas(
     tollarance: float = 1e-2,
     auto_save: bool = False,
     path: str = None,
+    print_msg: bool = True,
 ) -> pd.DataFrame:
     """Benchmark function for one maxcut instance and one p value
 
@@ -188,11 +196,13 @@ def benchmark_pandas(
     Returns:
         dict: The result of the benchmark in a form that can be directly converted to a pandas dataframe
     """
-    if isinstance(instance, MaxCut):
-        print(
-            f"Running benchmark on instance with {instance.graph.number_of_nodes()} with optimizers {(key for key,value in optimizers.items() if value)}"
-        )
-        qaoa = QAOA(instance.qubo, p=p)
+
+    if isinstance(input, MaxCut):
+        if print_msg:
+            print(
+                f"Running benchmark on instance with {input.graph.number_of_nodes()} with optimizers {(key for key,value in optimizers.items() if value)}"
+            )
+        qaoa = QAOA(input.qubo, p=p)
         delta_0 = tuple(1 for _ in range(2 * p))
         results: dict[str, QAOAResult] = dict()
 
@@ -223,53 +233,66 @@ def benchmark_pandas(
             )
             results["gradient_descent"] = gradient_descent_res
 
-        out = [
-            {
-                "instance": instance,
-                "qaoa": qaoa,
-                "p": p,
-                "n": qaoa.n,
-                "delta_0": delta_0,
-                "tollarance": tollarance,
-                "algorithm": algo,
-                "res": res,
-                "delta": res.parameters,
-                "path": res.parameter_path,
-                "steps": res.num_steps,
-                "num_fun_calls": res.num_fun_calls,
-                "real duration": res.duration,
-                "message": res.message,
-            }
+        out = {
+            algo: bench_result(
+                {
+                    "instance": input,
+                    # "qaoa": qaoa,   # produces unnecessary large files
+                    "p": p,
+                    "n": qaoa.n,
+                    "delta_0": delta_0,
+                    "tollarance": tollarance,
+                    "algorithm": algo,
+                    "res": res,
+                    "delta": res.parameters,
+                    "value": res.value,
+                    "path": res.parameter_path,
+                    "steps": res.num_steps,
+                    "num_fun_calls": res.num_fun_calls,
+                    "real duration": res.duration,
+                    "message": res.message,
+                }
+            )
             for algo, res in results.items()
-        ]
-
-        if auto_save and path is not None:
-            if os.path.isfile(path):
-                with open(path, "rb") as f:
-                    out = pickle.load(f).extend(out)
-            with open(path, "wb") as f:
-                pickle.dump(out, f)
+        }
+        for k in out.keys():
+            out[k].__repr__ = lambda: f"{k}: {out[k]['value']}"
 
         # return the results
-        return pd.DataFrame(data=out)
+        return pd.DataFrame(data=out, columns=["tdvp", "scipy", "gradient_descent"])
 
-    elif isinstance(instance, pd.DataFrame):
-        df = pd.DataFrame()
-        instance.swifter.apply(
-            lambda x: df.append(
-                benchmark_pandas(
-                    x["instance"],
-                    x["p"],
-                    optimizers=optimizers,
-                    tollarance=tollarance,
-                    auto_save=auto_save,
-                    path=path,
-                )
+    elif isinstance(input, pd.DataFrame):
+        if print_msg:
+            print(
+                f"Running benchmark on {len(input)} instances with optimizers {(key for key,value in optimizers.items() if value)}"
+            )
+        return input.apply(
+            lambda x: benchmark_pandas(
+                x,
+                optimizers=optimizers,
+                tollarance=tollarance,
+                auto_save=auto_save,
+                path=path,
+                print_msg=False,
             ),
             axis=1,
         )
-        return df
+    elif isinstance(input, pd.Series):
+        out = benchmark_pandas(
+            input["instance"],
+            p=input.name[0],
+            optimizers=optimizers,
+            tollarance=tollarance,
+            auto_save=auto_save,
+            path=path,
+            print_msg=False,
+        )
+        input["tdvp"], input["scipy"], input["gradient_descent"] = (
+            out["tdvp"],
+            out["scipy"],
+            out["gradient_descent"],
+        )
     else:
         raise TypeError(
-            "instance must be either a MaxCut instance or a pandas series of MaxCut instances"
+            f"instance must be either a MaxCut instance or a pandas series of MaxCut instances or a pandas Series but is {type(input)}"
         )
