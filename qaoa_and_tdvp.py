@@ -29,7 +29,7 @@ from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate, groundspace
 
 
 class QAOA:
-    # _num_gates = Value("i", 0)
+    # _num_gates = Value("i", 0)settsett
 
     def __init__(
         self,
@@ -1065,7 +1065,7 @@ def gradient_descent(
     result.num_steps = step  # number of steps
     result.qaoa = qaoa
     result.duration = dt  # time for integration
-    result.optimizer_name = f"gradient_descent with general gradient evaluation"
+    result.optimizer_name = "gradient_descent with general gradient evaluation"
     result.state = qaoa.state(result.parameters)  # final state
     result.value = expect(
         qaoa.H, result.state
@@ -1194,7 +1194,9 @@ def tdvp_optimize_qaoa(
             )
             nfev += int_result.nfev
             times.extend(int_result.t)
-            path.extend(zip(int_result.y[0], int_result.y[1]))
+            path.extend(
+                zip(*int_result.y)
+            )  # y is an array of lists for each parameter. Unpack and zip to get a list of tuples, where each tuple is a parameter vector
             if int_result.status == 1:
                 go_on = False
             else:
@@ -1218,6 +1220,7 @@ def tdvp_optimize_qaoa(
     result.duration = dt  # time for integration
     result.num_steps = rhs_step  # number of steps
     result.optimizer_name = f"tdvp_optimizer with {'circuit' if rhs_mode else 'finitediff'} gradient evaluation and {int_mode} as integration mode"
+    print(result.parameters)
     result.state = qaoa.state(result.parameters)  # final state
     result.value = expect(
         qaoa.H, result.state

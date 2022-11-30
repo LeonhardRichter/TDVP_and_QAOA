@@ -88,43 +88,44 @@ class Benchmark:
 
     def test_run(
         self,
-        qaoa,
+        instance: MaxCut,
         delta_0,
         p: int = None,
-        tdvp_stepsize: float = None,
-        tdvp_grad_tol: float = None,
+        tdvp_range: float = None,
+        tollarance: float = None,
         tdvp_lineq_solver: str = None,
     ) -> None:
         tdvp_res = QAOAResult()
         scipy_res = QAOAResult()
 
         return {
-            "tdvp": tdvp_res,
-            "scipy": scipy_res,
+            "instance": instance,
+            "tdvp_res": tdvp_res,
+            "scipy_res": scipy_res,
             "p": p,
             "delta_0": delta_0,
-            "tdvp_stepsize": tdvp_stepsize,
-            "tdvp_grad_tol": tdvp_grad_tol,
+            "tollarance": tollarance,
             "tdvp_lineq_solver": tdvp_lineq_solver,
         }
 
     def run(
         self,
-        qaoa,
+        instance: MaxCut,
         delta_0,
         p: int = None,
-        tdvp_stepsize: float = None,
-        tdvp_grad_tol: float = None,
+        tdvp_range: float = None,
+        tollarance: float = None,
         tdvp_lineq_solver: str = None,
         max_steps: int = 200,
         record_path: bool = False,
     ) -> None:
+        qaoa = QAOA(qubo=instance.qubo, p=p)
         if p is not None:
             qaoa.p = p
 
         try:
             scipy_res = scipy_optimize(
-                delta_0=delta_0, qaoa=qaoa, record_path=record_path
+                delta_0=delta_0, qaoa=qaoa, record_path=record_path, tol=tollarance
             )
         except LinAlgError:
             scipy_res = QAOAResult()
@@ -137,8 +138,8 @@ class Benchmark:
             tdvp_res = tdvp_optimize_qaoa(
                 qaoa=qaoa,
                 delta_0=delta_0,
-                Delta=tdvp_stepsize,
-                grad_tol=tdvp_grad_tol,
+                Delta=tdvp_range,
+                grad_tol=tollarance,
                 int_mode=tdvp_lineq_solver,
                 max_iter=max_steps,
             )
@@ -155,16 +156,13 @@ class Benchmark:
                 "scipy": scipy_res,
                 "p": p,
                 "delta_0": delta_0,
-                "tdvp_stepsize": tdvp_stepsize,
-                "tdvp_grad_tol": tdvp_grad_tol,
+                "tollarance": tollarance,
                 "tdvp_lineq_solver": tdvp_lineq_solver,
             }
         )
 
     def save(self, filename: str) -> None:
-        df = pd.DataFrame(self.results)
-        df.to_csv(f"./benchmarks/{filename}.csv")
-        pickle.dump(self, open(f"./benchmarks/{filename}.p", "wb"))
+        pickle.dump(self, open(f"..//benchmarks//{filename}.p", "wb"))
 
 
 def benchmark_pandas(
@@ -225,15 +223,7 @@ def benchmark_pandas(
             )
             results["gradient_descent"] = gradient_descent_res
 
-        if auto_save and path is not None:
-            if os.path.isfile(path):
-                with open(path, "rb") as f:
-                    results = pickle.load(f).extend(results)
-            with open(path, "wb") as f:
-                pickle.dump(results, f)
-
-        # return the results
-        return pd.DataFrame(data=[
+        out = [
             {
                 "instance": instance,
                 "qaoa": qaoa,
@@ -250,8 +240,18 @@ def benchmark_pandas(
                 "real duration": res.duration,
                 "message": res.message,
             }
-            for algo,res in results.items()
-        ])
+            for algo, res in results.items()
+        ]
+
+        if auto_save and path is not None:
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    out = pickle.load(f).extend(out)
+            with open(path, "wb") as f:
+                pickle.dump(out, f)
+
+        # return the results
+        return pd.DataFrame(data=out)
 
     elif isinstance(instance, pd.DataFrame):
         df = pd.DataFrame()
