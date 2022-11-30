@@ -15,8 +15,6 @@ from scipy.optimize import minimize
 import numpy as np
 from numpy.typing import NDArray
 
-from multiprocessing import Value
-
 # qutip version 4.7.0 (Cython version 0.29.30)
 from qutip import expect, Qobj, tensor
 from qutip.parallel import parallel_map, serial_map
@@ -788,8 +786,7 @@ class QAOAResult:
         return f"""
         {self.optimizer_name} terminated with {'no ' if not self.success else ''}sucess with message
         \"{self.message}\"
-        This took {self.duration:.2f} seconds
-        
+        This took {self.duration:.2f} seconds\n
             optimal parameters: {self.parameters}
                  optimal value: {self.value}
            number of fun calls: {self.num_fun_calls}
