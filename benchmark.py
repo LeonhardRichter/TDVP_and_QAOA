@@ -172,7 +172,7 @@ class bench_result(dict):
         return f'{self.get("algorithm", np.NaN)}, C={self.get("value", np.NaN)}, delta={self.get("delta", np.NaN)}'
 
 
-def benchmark_pandas(
+def bench_recursive(
     input: MaxCut | pd.DataFrame | pd.Series,
     p: int | None = None,
     optimizers: dict[str, bool] = {
@@ -261,24 +261,8 @@ def benchmark_pandas(
         # return the results
         return pd.DataFrame(data=out, columns=["tdvp", "scipy", "gradient_descent"])
 
-    elif isinstance(input, pd.DataFrame):
-        if print_msg:
-            print(
-                f"Running benchmark on {len(input)} instances with optimizers {(key for key,value in optimizers.items() if value)}"
-            )
-        return input.apply(
-            lambda x: benchmark_pandas(
-                x,
-                optimizers=optimizers,
-                tollarance=tollarance,
-                auto_save=auto_save,
-                path=path,
-                print_msg=False,
-            ),
-            axis=1,
-        )
     elif isinstance(input, pd.Series):
-        out = benchmark_pandas(
+        out = bench_recursive(
             input["instance"],
             p=input.name[0],
             optimizers=optimizers,
@@ -292,7 +276,163 @@ def benchmark_pandas(
             out["scipy"],
             out["gradient_descent"],
         )
+        return input
+    elif isinstance(input, pd.DataFrame):
+        if print_msg:
+            print(
+                f"Running benchmark on {len(input)} instances with optimizers {(key for key,value in optimizers.items() if value)}"
+            )
+        return input.apply(
+            lambda x: bench_recursive(
+                x,
+                optimizers=optimizers,
+                tollarance=tollarance,
+                auto_save=auto_save,
+                path=path,
+                print_msg=False,
+            ),
+            axis=1,
+        )
     else:
         raise TypeError(
             f"instance must be either a MaxCut instance or a pandas series of MaxCut instances or a pandas Series but is {type(input)}"
         )
+
+
+def bench_instance(
+    input: MaxCut,
+    p: int | None = None,
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": True,
+    },
+    tollarance: float = 1e-2,
+    auto_save: bool = False,
+    path: str = None,
+    print_msg: bool = True,
+) -> pd.DataFrame:
+    if print_msg:
+        print(
+            f"Running benchmark on instance with {input.graph.number_of_nodes()} with optimizers {(key for key,value in optimizers.items() if value)}"
+        )
+    qaoa = QAOA(input.qubo, p=p)
+    delta_0 = tuple(1 for _ in range(2 * p))
+    results: dict[str, QAOAResult] = dict()
+
+    # get the results
+    if optimizers.get("tdvp", False):
+        print("optimizing with tdvp")
+        tdvp_res = tdvp_optimize_qaoa(
+            qaoa=qaoa,
+            delta_0=delta_0,
+            Delta=100,
+            grad_tol=tollarance,
+            int_mode="RK45",
+            max_iter=100,
+        )
+        results["tdvp"] = tdvp_res
+
+    if optimizers.get("scipy", False):
+        print("optimizing with scipy")
+        scipy_res = scipy_optimize(
+            delta_0=delta_0, qaoa=qaoa, record_path=True, tol=tollarance
+        )
+        results["scipy"] = scipy_res
+
+    if optimizers.get("gradient_descent", False):
+        print("optimizing with gradient descent")
+        gradient_descent_res = gradient_descent(
+            delta_0=delta_0, qaoa=qaoa, tol=tollarance
+        )
+        results["gradient_descent"] = gradient_descent_res
+
+    out = {
+        algo: {
+            "instance": input,
+            # "qaoa": qaoa,   # produces unnecessary large files
+            "p": p,
+            "n": qaoa.n,
+            "delta_0": delta_0,
+            "tollarance": tollarance,
+            "algorithm": algo,
+            "res": res,
+            "delta": res.parameters,
+            "value": res.value,
+            "path": res.parameter_path,
+            "steps": res.num_steps,
+            "num_fun_calls": res.num_fun_calls,
+            "real duration": res.duration,
+            "message": res.message,
+        }
+        for algo, res in results.items()
+    }
+
+    # return the results
+    return pd.DataFrame(data=out, columns=["tdvp", "scipy", "gradient_descent"])
+
+
+def bench_series(
+    input: pd.Series,
+    p: int | None = None,
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": True,
+    },
+    tollarance: float = 1e-2,
+    auto_save: bool = False,
+    path: str = None,
+    print_msg: bool = True,
+) -> pd.DataFrame:
+    out = bench_instance(
+        input["instance"],
+        p=input.name[0],
+        optimizers=optimizers,
+        tollarance=tollarance,
+        auto_save=auto_save,
+        path=path,
+        print_msg=False,
+    )
+    input["tdvp"], input["scipy"], input["gradient_descent"] = (
+        out["tdvp"],
+        out["scipy"],
+        out["gradient_descent"],
+    )
+    return input
+
+
+def bench_frame(
+    input: pd.DataFrame,
+    p: int | None = None,
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": True,
+    },
+    tollarance: float = 1e-2,
+    auto_save: bool = False,
+    path: str = None,
+    print_msg: bool = True,
+) -> pd.DataFrame:
+    if print_msg:
+        print(
+            f"Running benchmark on {len(input)} instances with optimizers {tuple(key for key,value in optimizers.items() if value)}"
+        )
+    out = input.swifter.apply(
+        lambda x: bench_series(
+            x,
+            optimizers=optimizers,
+            tollarance=tollarance,
+            auto_save=auto_save,
+            path=path,
+            print_msg=False,
+        ),
+        axis=1,
+    )
+
+    if path is not None:
+        with open(path, "wb") as f:
+            pickle.dump(out, f)
+
+    return out
