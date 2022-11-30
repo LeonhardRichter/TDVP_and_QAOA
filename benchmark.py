@@ -8,7 +8,7 @@ from qaoa_and_tdvp import (
 from math import prod
 from typing import List, Dict, Any, Union
 import pandas as pd
-import swifter
+from itertools import product
 import pickle
 from scipy.linalg import LinAlgError
 import numpy as np
@@ -163,6 +163,23 @@ class Benchmark:
     def save(self, filename: str) -> None:
         pickle.dump(self, open(f"..//benchmarks//{filename}.p", "wb"))
 
+def load_instances(n:int,p_min:int=1,p_max:int=5)->pd.DataFrame:
+    with open(f"./instances/n{n}_instances.p","rb") as f:
+        instances = pickle.load(f)
+
+    instances = dict(enumerate(instances))
+
+    arrays=[
+        list(range(p_min,p_max+1)),
+        list(instances.keys()),
+    ]
+    tuples = product(*arrays)
+    index = pd.MultiIndex.from_tuples(tuples, names=["p","i"])
+    df = pd.DataFrame(index=index, columns=["instance", 'tdvp', 'scipy', 'gradient_descent'])
+    # df['instances'] = df.apply(lambda x: 0, axis=0)
+    for (p,i) in df.index:
+        df['instance'][(p,i)] = instances[i]
+    return df
 
 class bench_result(dict):
     def __init_subclass__(cls) -> None:
@@ -314,7 +331,7 @@ def bench_instance(
 ) -> pd.DataFrame:
     if print_msg:
         print(
-            f"Running benchmark on instance with {input.graph.number_of_nodes()} with optimizers {(key for key,value in optimizers.items() if value)}"
+            f"Running benchmark on instance with {input.graph.number_of_nodes()} with optimizers {tuple(key for key,value in optimizers.items() if value)}"
         )
     qaoa = QAOA(input.qubo, p=p)
     delta_0 = tuple(1 for _ in range(2 * p))
@@ -419,7 +436,7 @@ def bench_frame(
         print(
             f"Running benchmark on {len(input)} instances with optimizers {tuple(key for key,value in optimizers.items() if value)}"
         )
-    out = input.swifter.apply(
+    out = input.apply(
         lambda x: bench_series(
             x,
             optimizers=optimizers,
