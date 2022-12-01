@@ -1066,7 +1066,7 @@ def gradient_descent(
     result.state = qaoa.state(result.parameters)  # final state
     result.value = expect(
         qaoa.H, result.state
-    )  # expectation value of the optimal state
+    )  # type: ignore # expectation value of the optimal state
 
     return result
 
@@ -1114,14 +1114,6 @@ def tdvp_optimize_qaoa(
             print(f"rhs step {rhs_step}", end="\r")
             return qaoa_tdvp_rhs(t, x, qaoa)
 
-    elif rhs_mode == "gen":
-
-        def tdvp_rhs(t, x) -> NDArray:
-            nonlocal rhs_step
-            rhs_step += 1
-            print(f"rhs step {rhs_step}", end="\r")
-            return gen_tdvp_rhs(t, x, qaoa)
-
     elif rhs_mode == "qaoa_lineq":
 
         def tdvp_rhs(t, x) -> NDArray:
@@ -1129,6 +1121,14 @@ def tdvp_optimize_qaoa(
             rhs_step += 1
             print(f"rhs step {rhs_step}", end="\r")
             return qaoa_lineq_tdvp_rhs(t, x, qaoa)
+
+    else:
+
+        def tdvp_rhs(t, x) -> NDArray:
+            nonlocal rhs_step
+            rhs_step += 1
+            print(f"rhs step {rhs_step}", end="\r")
+            return gen_tdvp_rhs(t, x, qaoa)
 
     def tdvp_terminal(t, x) -> float:
         return (

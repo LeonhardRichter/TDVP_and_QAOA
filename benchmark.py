@@ -16,7 +16,7 @@ import networkx as nx
 from MaxCut import MaxCut
 
 
-def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
+def get_rn_qubo(size: int, num: int = 1) -> np.matrix | list[np.matrix]:
     qubos = list()
 
     while len(qubos) < num:
@@ -36,7 +36,7 @@ def get_rn_qubo(size: int, num: int = 1) -> np.matrix:
 
     if num == 1:
         return qubos[0]
-    if num != 1:
+    else:
         return qubos
 
 
@@ -57,7 +57,7 @@ def get_connected_rn_graph(
 
     if number_of_graphs == 1:
         return selected_graphs[0]
-    if number_of_graphs != 1:
+    else:
         return selected_graphs
 
 
@@ -89,11 +89,11 @@ class Benchmark:
         self,
         instance: MaxCut,
         delta_0,
-        p: int = None,
-        tdvp_range: float = None,
-        tollarance: float = None,
-        tdvp_lineq_solver: str = None,
-    ) -> None:
+        p: int | None = None,
+        tdvp_range: float | None = None,
+        tollarance: float | None = None,
+        tdvp_lineq_solver: str | None = None,
+    ) -> dict:
         tdvp_res = QAOAResult()
         scipy_res = QAOAResult()
 
@@ -111,11 +111,11 @@ class Benchmark:
         self,
         instance: MaxCut,
         delta_0,
-        p: int = None,
-        tdvp_range: float = None,
-        tollarance: float = None,
-        tdvp_lineq_solver: str = None,
-        max_steps: int = 200,
+        p: int = 1,
+        tdvp_range: float = 1.0,
+        tollarance: float = 1e-2,
+        tdvp_lineq_solver: str = "RK45",
+        max_iter: int = 200,
         record_path: bool = False,
     ) -> None:
         qaoa = QAOA(qubo=instance.qubo, p=p)
@@ -130,7 +130,6 @@ class Benchmark:
             scipy_res = QAOAResult()
             scipy_res.success = False
             scipy_res.message = "LinAlgError"
-            scipy_res.prob = 0
             scipy_res.qaoa = qaoa
 
         try:
@@ -140,13 +139,12 @@ class Benchmark:
                 Delta=tdvp_range,
                 grad_tol=tollarance,
                 int_mode=tdvp_lineq_solver,
-                max_iter=max_steps,
+                max_iter=max_iter,
             )
         except LinAlgError:
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "LinAlgError"
-            tdvp_res.prob = 0
             tdvp_res.qaoa = qaoa
 
         self.results.append(
@@ -161,7 +159,8 @@ class Benchmark:
         )
 
     def save(self, filename: str) -> None:
-        pickle.dump(self, open(f"..//benchmarks//{filename}.p", "wb"))
+        with open(filename, "wb") as f:
+            pickle.dump(self, f)
 
 
 def load_instances(n: int, p_min: int = 1, p_max: int = 5) -> pd.DataFrame:
@@ -195,7 +194,7 @@ class bench_result(dict):
 
 def bench_recursive(
     input: MaxCut | pd.DataFrame | pd.Series,
-    p: int | None = None,
+    p: int = 1,
     optimizers: dict[str, bool] = {
         "tdvp": True,
         "scipy": True,
@@ -203,9 +202,9 @@ def bench_recursive(
     },
     tollarance: float = 1e-2,
     auto_save: bool = False,
-    path: str = None,
+    path: str | None = None,
     print_msg: bool = True,
-) -> pd.DataFrame:
+) -> pd.DataFrame | pd.Series:
     """Benchmark function for one maxcut instance and one p value
 
     Args:
@@ -285,7 +284,7 @@ def bench_recursive(
     elif isinstance(input, pd.Series):
         out = bench_recursive(
             input["instance"],
-            p=input.name[0],
+            p=input.name[0],  # type: ignore
             optimizers=optimizers,
             tollarance=tollarance,
             auto_save=auto_save,
@@ -311,7 +310,7 @@ def bench_recursive(
                 auto_save=auto_save,
                 path=path,
                 print_msg=False,
-            ),
+            ),  # type: ignore
             axis=1,
         )
     else:
@@ -322,15 +321,17 @@ def bench_recursive(
 
 def bench_instance(
     input: MaxCut,
-    p: int | None = None,
+    p: int = 1,
     optimizers: dict[str, bool] = {
         "tdvp": True,
         "scipy": True,
         "gradient_descent": True,
     },
     tollarance: float = 1e-2,
+    max_iter: int = 1,
+    tdvp_range: float = 1,
     auto_save: bool = False,
-    path: str = None,
+    path: str | None = None,
     print_msg: bool = True,
 ) -> pd.DataFrame:
     if print_msg:
@@ -343,22 +344,33 @@ def bench_instance(
 
     # get the results
     if optimizers.get("tdvp", False):
-        print("optimizing with tdvp")
-        tdvp_res = tdvp_optimize_qaoa(
-            qaoa=qaoa,
-            delta_0=delta_0,
-            Delta=100,
-            grad_tol=tollarance,
-            int_mode="RK45",
-            max_iter=100,
-        )
+        try:
+            print("optimizing with tdvp")
+            tdvp_res = tdvp_optimize_qaoa(
+                qaoa=qaoa,
+                delta_0=delta_0,
+                Delta=100,
+                grad_tol=tollarance,
+                int_mode="RK45",
+                max_iter=max_iter,
+            )
+        except LinAlgError:
+            tdvp_res = QAOAResult()
+            tdvp_res.success = False
+            tdvp_res.message = "LinAlgError"
+
         results["tdvp"] = tdvp_res
 
     if optimizers.get("scipy", False):
-        print("optimizing with scipy")
-        scipy_res = scipy_optimize(
-            delta_0=delta_0, qaoa=qaoa, record_path=True, tol=tollarance
-        )
+        try:
+            print("optimizing with scipy")
+            scipy_res = scipy_optimize(
+                delta_0=delta_0, qaoa=qaoa, record_path=True, tol=tollarance
+            )
+        except LinAlgError:
+            scipy_res = QAOAResult()
+            scipy_res.success = False
+            scipy_res.message = "LinAlgError"
         results["scipy"] = scipy_res
 
     if optimizers.get("gradient_descent", False):
@@ -402,15 +414,19 @@ def bench_series(
         "gradient_descent": True,
     },
     tollarance: float = 1e-2,
+    max_iter: int = 1,
+    tdvp_range: float = 1,
     auto_save: bool = False,
     path: str | None = None,
     print_msg: bool = True,
-) -> pd.DataFrame:
+) -> pd.DataFrame | pd.Series:
     out = bench_instance(
         input["instance"],
-        p=input.name[0],
+        p=input.name[0],  # type: ignore
         optimizers=optimizers,
         tollarance=tollarance,
+        max_iter=max_iter,
+        tdvp_range=tdvp_range,
         auto_save=auto_save,
         path=path,
         print_msg=False,
@@ -432,8 +448,10 @@ def bench_frame(
         "gradient_descent": True,
     },
     tollarance: float = 1e-2,
+    max_iter: int = 1,
+    tdvp_range: float = 1,
     auto_save: bool = False,
-    path: str = None,
+    path: str | None = None,
     print_msg: bool = True,
 ) -> pd.DataFrame:
     if print_msg:
@@ -445,13 +463,15 @@ def bench_frame(
             x,
             optimizers=optimizers,
             tollarance=tollarance,
+            max_iter=max_iter,
+            tdvp_range=tdvp_range,
             auto_save=auto_save,
             path=path,
             print_msg=False,
-        ),
+        ),  # type: ignore
         axis=1,
     )
-
+    # type: ignore
     if path is not None:
         with open(path, "wb") as f:
             pickle.dump(out, f)
@@ -480,7 +500,7 @@ def bench_looping(
     for (p, i) in input.index:
         df.loc[(p, i)] = (  # type: ignore
             bench_series(
-                df.loc[(p, i)],
+                df.loc[(p, i)],  # type: ignore
                 p=p,
                 optimizers=optimizers,
                 tollarance=tollarance,
