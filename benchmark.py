@@ -163,23 +163,27 @@ class Benchmark:
     def save(self, filename: str) -> None:
         pickle.dump(self, open(f"..//benchmarks//{filename}.p", "wb"))
 
-def load_instances(n:int,p_min:int=1,p_max:int=5)->pd.DataFrame:
-    with open(f"./instances/n{n}_instances.p","rb") as f:
+
+def load_instances(n: int, p_min: int = 1, p_max: int = 5) -> pd.DataFrame:
+    with open(f"./instances/n{n}_instances.p", "rb") as f:
         instances = pickle.load(f)
 
     instances = dict(enumerate(instances))
 
-    arrays=[
-        list(range(p_min,p_max+1)),
+    arrays = [
+        list(range(p_min, p_max + 1)),
         list(instances.keys()),
     ]
     tuples = product(*arrays)
-    index = pd.MultiIndex.from_tuples(tuples, names=["p","i"])
-    df = pd.DataFrame(index=index, columns=["instance", 'tdvp', 'scipy', 'gradient_descent'])
+    index = pd.MultiIndex.from_tuples(tuples, names=["p", "i"])
+    df = pd.DataFrame(
+        index=index, columns=["instance", "tdvp", "scipy", "gradient_descent"]
+    )
     # df['instances'] = df.apply(lambda x: 0, axis=0)
-    for (p,i) in df.index:
-        df['instance'][(p,i)] = instances[i]
+    for (p, i) in df.index:
+        df["instance"][(p, i)] = instances[i]
     return df
+
 
 class bench_result(dict):
     def __init_subclass__(cls) -> None:
@@ -399,7 +403,7 @@ def bench_series(
     },
     tollarance: float = 1e-2,
     auto_save: bool = False,
-    path: str = None,
+    path: str | None = None,
     print_msg: bool = True,
 ) -> pd.DataFrame:
     out = bench_instance(
@@ -453,3 +457,41 @@ def bench_frame(
             pickle.dump(out, f)
 
     return out
+
+
+def bench_looping(
+    input: pd.DataFrame,
+    p: int | None = None,
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": True,
+    },
+    tollarance: float = 1e-2,
+    auto_save: bool = False,
+    path: str | None = None,
+    print_msg: bool = True,
+) -> pd.DataFrame:
+    df = input
+    if print_msg:
+        print(
+            f"Running benchmark on {len(input)} instances with optimizers {tuple(key for key,value in optimizers.items() if value)}"
+        )
+    for (p, i) in input.index:
+        df.loc[(p, i)] = (  # type: ignore
+            bench_series(
+                df.loc[(p, i)],
+                p=p,
+                optimizers=optimizers,
+                tollarance=tollarance,
+                auto_save=auto_save,
+                path=path,
+                print_msg=False,
+            ),
+        )
+
+    if path is not None:
+        with open(path, "wb") as f:
+            pickle.dump(df, f)
+
+    return df
