@@ -51,20 +51,18 @@ def q_j(qubo: ArrayLike) -> NDArray:
     return qj
 
 
-def H_from_qubo(qubo: ArrayLike, constant: float = None) -> Qobj:
+def H_from_qubo(qubo: ArrayLike, constant: float = 0) -> Qobj:
     n = qubo.shape[0]
     qj = q_j(qubo)
     # handle constant term
-    if constant == None:
-        constant = 0
-    # qconstant = (
-    #     constant + np.sum(np.diagonal(qubo)) + np.sum(qubo - np.diag(np.diagonal(qubo)))
-    # ) * qeye([2 for _ in range(n)])
+    qconstant = (
+        constant - np.sum(np.diagonal(qubo)) + np.sum(qubo - np.diag(np.diagonal(qubo)))
+    ) * qeye([2 for _ in range(n)])
     H = (
         (-1 / 2) * sum((qubo[i][i] + qj[i]) * sz(n, i) for i in range(n))
         + (1 / 4)
         * sum(qubo[j][k] * sz(n, j) * sz(n, k) for j, k in combinations(range(n), 2))
-        # + qconstant
+        + qconstant
     )
     return H
 

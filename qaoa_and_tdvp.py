@@ -15,6 +15,8 @@ from scipy.optimize import minimize
 import numpy as np
 from numpy.typing import NDArray
 
+from MaxCut import MaxCut
+
 # qutip version 4.7.0 (Cython version 0.29.30)
 from qutip import expect, Qobj, tensor
 from qutip.parallel import parallel_map, serial_map
@@ -31,7 +33,7 @@ class QAOA:
 
     def __init__(
         self,
-        qubo: NDArray,
+        qubo: NDArray | MaxCut,
         hamiltonian: Qobj = None,
         hamiltonian_ground: Qobj = None,
         p: int = 1,
@@ -42,11 +44,15 @@ class QAOA:
 
         self._H = hamiltonian
         self.H_ground = hamiltonian_ground
-        self._qubo = qubo
+        assert isinstance(qubo, (MaxCut, np.ndarray)), "qubo must be a MaxCut or ndarray"
+        if isinstance(qubo, MaxCut):
+            self._qubo = qubo.qubo
+        else:
+            self._qubo = qubo
         self.p = p
 
-        self._n = qubo.shape[0]
-        self._qj = q_j(qubo)
+        self._n = self.qubo.shape[0]
+        self._qj = q_j(self.qubo)
         assert self._n == len(self.H.dims[0])
 
         self.mixer_ground = tensor([minus for _ in range(self.n)])
@@ -636,7 +642,7 @@ class QAOAResult:
     def __init__(self) -> None:
         self._message = None
         self._optimizer_name = None
-        self._success = None
+        self._sucess = None
         self._parameter_path = None
         self._optimal_fun_value = None
         self._num_fun_calls = None
@@ -757,11 +763,11 @@ class QAOAResult:
     @property
     def success(self) -> bool:
         """The sucess property."""
-        return self._success
+        return self._sucess
 
     @success.setter
     def success(self, value: bool) -> None:
-        self._success = value
+        self._sucess = value
 
     @property
     def optimizer_name(self) -> str:
@@ -1078,8 +1084,8 @@ def tdvp_optimize_qaoa(
     rhs_mode: str = "qaoa",
     int_mode: str = "RK45",
     grad_tol: float | None = 1e-3,
-    max_iter: int = 1000,
-    num_of_path_points: int = 1,
+    max_iter: int = 100,
+    max_steps: int = 1500,
 ) -> QAOAResult:  # rhs_mode: "qaoa", "lineq", "lineq_qaoa"
     """optimize an qaoa instance by tdvp for imaginary time evolution.
 
@@ -1136,11 +1142,17 @@ def tdvp_optimize_qaoa(
         )  # stop if the norm of the rhs is smaller than grad_tol
 
     tdvp_terminal.terminal = True  # this is needed for the scipy solver
-
-    def tdvp_max_steps(t, x) -> float:
-        return float(max_iter - rhs_step)
+    max_steps_reached = False
+    def tdvp_max_steps(*args) -> float:
+        nonlocal rhs_step
+        x = float(max_steps - rhs_step)
+        if x<0:
+            print("max_steps reached")
+            max_steps_reached= True
+        return x
 
     tdvp_max_steps.terminal = True
+    tdvp_max_steps.direction = -1
 
     result = QAOAResult()  # create result object
 
@@ -1186,7 +1198,7 @@ def tdvp_optimize_qaoa(
                 method=int_mode,
                 # t_eval=eval_points,
                 events=[
-                    tdvp_terminal,  # tdvp_max_steps
+                    tdvp_terminal, tdvp_max_steps
                 ],
             )
             nfev += int_result.nfev
@@ -1205,11 +1217,16 @@ def tdvp_optimize_qaoa(
         print("done\n")
         # save the result
         result.orig_result = int_result
-        result.success = int_result.success  # success of integration
+        if max_steps_reached:
+            result.success = False
+        else:
+            result.success = int_result.success  # success of integration
         result.times = times  # time steps
         result.parameter_path = path
         result.parameters = result.parameter_path[-1]  # last step
         result.message = int_result.message  # message from the solver
+        if max_steps_reached:
+            result.message += ": max_steps reached!"
         result.num_fun_calls = nfev  # number of function calls
     # save the rest of the result, same for both sovlers
 
@@ -1226,3 +1243,5 @@ def tdvp_optimize_qaoa(
     # qaoa.reset_gate_counter()
 
     return result
+
+#%%

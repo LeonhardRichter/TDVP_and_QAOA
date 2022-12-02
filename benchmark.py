@@ -197,6 +197,9 @@ def bench_recursive(
     p: int = 1,
     optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
     tollarance: float = 1e-2,
+    tdvp_range: float = 1.0,
+    max_iter: int = 200,
+    max_steps: int = 1000,
     auto_save: bool = False,
     path: str | None = None,
     print_msg: bool = True,
@@ -231,7 +234,8 @@ def bench_recursive(
                 Delta=100,
                 grad_tol=tollarance,
                 int_mode="RK45",
-                max_iter=100,
+                max_iter=max_iter,
+                max_steps= max_steps,
             )
             results["tdvp"] = tdvp_res
 
@@ -283,6 +287,8 @@ def bench_recursive(
             p=input.name[0],  # type: ignore
             optimizers=optimizers,
             tollarance=tollarance,
+            max_iter=max_iter,
+            max_steps= max_steps,
             auto_save=auto_save,
             path=path,
             print_msg=False,
@@ -303,6 +309,8 @@ def bench_recursive(
                 x,
                 optimizers=optimizers,
                 tollarance=tollarance,
+                max_iter=max_iter,
+                max_steps= max_steps,
                 auto_save=auto_save,
                 path=path,
                 print_msg=False,
@@ -321,6 +329,7 @@ def bench_instance(
     optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
     tollarance: float = 1e-2,
     max_iter: int = 1,
+    max_steps: int = 100,
     tdvp_range: float = 1,
     auto_save: bool = False,
     path: str | None = None,
@@ -345,11 +354,21 @@ def bench_instance(
                 grad_tol=tollarance,
                 int_mode="RK45",
                 max_iter=max_iter,
+                max_steps=max_steps,
             )
         except LinAlgError:
+            print(f'LinAlgError at p={p} and instance {input}')
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "LinAlgError"
+            tdvp_res.duration = 0
+            tdvp_res.parameters = delta_0
+            tdvp_res.num_fun_calls = 0
+        except ValueError:
+            print(f'ValueError at p={p} and instance {input}')
+            tdvp_res = QAOAResult()
+            tdvp_res.success = False
+            tdvp_res.message = "ValueError"
             tdvp_res.duration = 0
             tdvp_res.parameters = delta_0
             tdvp_res.num_fun_calls = 0
@@ -364,12 +383,21 @@ def bench_instance(
                 delta_0=delta_0, qaoa=qaoa, record_path=True, tol=tollarance
             )
         except LinAlgError:
+            print(f'LinAlgError at p={p} and instance {input}')
             scipy_res = QAOAResult()
             scipy_res.success = False
             scipy_res.message = "LinAlgError"
             scipy_res.duration = 0
             scipy_res.parameters = delta_0
             scipy_res.num_fun_calls = 0
+        except ValueError:
+            print(f'ValueError at p={p} and instance {input}')
+            tdvp_res = QAOAResult()
+            tdvp_res.success = False
+            tdvp_res.message = "ValueError"
+            tdvp_res.duration = 0
+            tdvp_res.parameters = delta_0
+            tdvp_res.num_fun_calls = 0
 
         results["scipy"] = scipy_res
 
@@ -411,22 +439,32 @@ def bench_series(
     optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
     tollarance: float = 1e-2,
     max_iter: int = 1,
+    max_steps: int = 100,
     tdvp_range: float = 1,
     auto_save: bool = False,
     path: str | None = None,
     print_msg: bool = True,
 ) -> pd.DataFrame | pd.Series:
-    out = bench_instance(
-        input["instance"],
-        p=input.name[0],  # type: ignore
-        optimizers=optimizers,
-        tollarance=tollarance,
-        max_iter=max_iter,
-        tdvp_range=tdvp_range,
-        auto_save=auto_save,
-        path=path,
-        print_msg=False,
-    )
+    try:
+        out = bench_instance(
+            input["instance"],
+            p=input.name[0],  # type: ignore
+            optimizers=optimizers,
+            tollarance=tollarance,
+            max_iter=max_iter,
+            max_steps=max_steps,
+            tdvp_range=tdvp_range,
+            auto_save=auto_save,
+            path=path,
+            print_msg=False,
+        )
+    except LinAlgError:
+        out = input
+        print(f"LinAlgError at {input.name}")
+    except ValueError:
+        out = input
+        print(f"ValueError at {input.name}")
+
     input["tdvp"], input["scipy"], input["gradient_descent"] = (
         out["tdvp"],
         out["scipy"],
@@ -441,6 +479,7 @@ def bench_frame(
     optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
     tollarance: float = 1e-2,
     max_iter: int = 1,
+    max_steps: int = 100,
     tdvp_range: float = 1,
     auto_save: bool = False,
     path: str | None = None,
@@ -456,6 +495,7 @@ def bench_frame(
             optimizers=optimizers,
             tollarance=tollarance,
             max_iter=max_iter,
+            max_steps=max_steps,
             tdvp_range=tdvp_range,
             auto_save=auto_save,
             path=path,
@@ -476,6 +516,8 @@ def bench_looping(
     p: int | None = None,
     optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
     tollarance: float = 1e-2,
+    max_iter: int = 1,
+    max_steps: int = 1000,
     auto_save: bool = False,
     path: str | None = None,
     print_msg: bool = True,
@@ -486,17 +528,23 @@ def bench_looping(
             f"Running benchmark on {len(input)} instances with optimizers {tuple(key for key,value in optimizers.items() if value)}"
         )
     for (p, i) in input.index:
-        df.loc[(p, i)] = (  # type: ignore
-            bench_series(
-                df.loc[(p, i)],  # type: ignore
-                p=p,
-                optimizers=optimizers,
-                tollarance=tollarance,
-                auto_save=auto_save,
-                path=path,
-                print_msg=False,
-            ),
-        )
+        try:
+            df.loc[(p, i)] = (  # type: ignore
+                bench_series(
+                    df.loc[(p, i)],  # type: ignore
+                    p=p,
+                    optimizers=optimizers,
+                    tollarance=tollarance,
+                    max_iter=max_iter,
+                    max_steps= max_steps,
+                    auto_save=auto_save,
+                    path=path,
+                    print_msg=False,
+                ),
+            )
+        except ValueError:
+            print(f"Error at p={p}, i={i}")
+            continue
 
     if path is not None:
         with open(path, "wb") as f:
