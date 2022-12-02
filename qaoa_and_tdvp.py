@@ -636,7 +636,7 @@ class QAOAResult:
     def __init__(self) -> None:
         self._message = None
         self._optimizer_name = None
-        self._sucess = None
+        self._success = None
         self._parameter_path = None
         self._optimal_fun_value = None
         self._num_fun_calls = None
@@ -757,11 +757,11 @@ class QAOAResult:
     @property
     def success(self) -> bool:
         """The sucess property."""
-        return self._sucess
+        return self._success
 
     @success.setter
     def success(self, value: bool) -> None:
-        self._sucess = value
+        self._success = value
 
     @property
     def optimizer_name(self) -> str:
