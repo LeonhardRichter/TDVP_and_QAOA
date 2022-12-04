@@ -292,7 +292,7 @@ class QAOA:
         return self.circuit(delta).run(self.mixer_ground)
 
     def expectation(self, delta: tuple[float]) -> float:
-        assert len(delta) == 2 * self.p
+        assert len(delta) == 2 * self.p, f"length of delta should be 2*{self.p}={2*self.p}, but is {len(delta)}:\n{delta}"
         return expect(self.H, self.state(delta))
 
     # methods for tdvp metric and gradient
