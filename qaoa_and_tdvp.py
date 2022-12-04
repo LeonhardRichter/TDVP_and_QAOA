@@ -1038,7 +1038,6 @@ def gradient_descent(
     delta = delta_0
     path = list()
     step = 0
-    grad = tol + 1
     fun_calls = 0
     p = qaoa.p
     dH = finitediff(qaoa.expectation)

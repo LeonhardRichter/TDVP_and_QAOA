@@ -404,7 +404,11 @@ def bench_instance(
     if optimizers.get("gradient_descent", False):
         print("optimizing with gradient descent")
         gradient_descent_res = gradient_descent(
-            delta_0=delta_0, qaoa=qaoa, tol=tollarance
+            delta_0=delta_0,
+            qaoa=qaoa,
+            tol=tollarance,
+            max_iter=max_steps,
+            Delta=tollarance,
         )
         results["gradient_descent"] = gradient_descent_res
 
