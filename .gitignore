@@ -1,4 +1,4 @@
-*.pdf
+#*.pdf
 *.nix
 poetry.lock
 pyproject.toml
