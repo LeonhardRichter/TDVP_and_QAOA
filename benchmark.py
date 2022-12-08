@@ -195,7 +195,11 @@ class bench_result(dict):
 def bench_recursive(
     input: MaxCut | pd.DataFrame | pd.Series,
     p: int = 1,
-    optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": False,
+    },
     tollarance: float = 1e-2,
     tdvp_range: float = 1.0,
     max_iter: int = 200,
@@ -235,7 +239,7 @@ def bench_recursive(
                 grad_tol=tollarance,
                 int_mode="RK45",
                 max_iter=max_iter,
-                max_steps= max_steps,
+                max_steps=max_steps,
             )
             results["tdvp"] = tdvp_res
 
@@ -288,7 +292,7 @@ def bench_recursive(
             optimizers=optimizers,
             tollarance=tollarance,
             max_iter=max_iter,
-            max_steps= max_steps,
+            max_steps=max_steps,
             auto_save=auto_save,
             path=path,
             print_msg=False,
@@ -310,7 +314,7 @@ def bench_recursive(
                 optimizers=optimizers,
                 tollarance=tollarance,
                 max_iter=max_iter,
-                max_steps= max_steps,
+                max_steps=max_steps,
                 auto_save=auto_save,
                 path=path,
                 print_msg=False,
@@ -326,7 +330,11 @@ def bench_recursive(
 def bench_instance(
     input: MaxCut,
     p: int = 1,
-    optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": False,
+    },
     tollarance: float = 1e-2,
     max_iter: int = 1,
     max_steps: int = 100,
@@ -357,7 +365,7 @@ def bench_instance(
                 max_steps=max_steps,
             )
         except LinAlgError:
-            print(f'LinAlgError at p={p} and instance {input}')
+            print(f"LinAlgError at p={p} and instance {input}")
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "LinAlgError"
@@ -365,14 +373,13 @@ def bench_instance(
             tdvp_res.parameters = delta_0
             tdvp_res.num_fun_calls = 0
         except ValueError:
-            print(f'ValueError at p={p} and instance {input}')
+            print(f"ValueError at p={p} and instance {input}")
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "ValueError"
             tdvp_res.duration = 0
             tdvp_res.parameters = delta_0
             tdvp_res.num_fun_calls = 0
-
 
         results["tdvp"] = tdvp_res
 
@@ -383,7 +390,7 @@ def bench_instance(
                 delta_0=delta_0, qaoa=qaoa, record_path=True, tol=tollarance
             )
         except LinAlgError:
-            print(f'LinAlgError at p={p} and instance {input}')
+            print(f"LinAlgError at p={p} and instance {input}")
             scipy_res = QAOAResult()
             scipy_res.success = False
             scipy_res.message = "LinAlgError"
@@ -391,7 +398,7 @@ def bench_instance(
             scipy_res.parameters = delta_0
             scipy_res.num_fun_calls = 0
         except ValueError:
-            print(f'ValueError at p={p} and instance {input}')
+            print(f"ValueError at p={p} and instance {input}")
             tdvp_res = QAOAResult()
             tdvp_res.success = False
             tdvp_res.message = "ValueError"
@@ -408,7 +415,6 @@ def bench_instance(
             qaoa=qaoa,
             tol=tollarance,
             max_iter=max_steps,
-            Delta=tollarance,
         )
         results["gradient_descent"] = gradient_descent_res
 
@@ -440,7 +446,11 @@ def bench_instance(
 def bench_series(
     input: pd.Series,
     p: int | None = None,
-    optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": False,
+    },
     tollarance: float = 1e-2,
     max_iter: int = 1,
     max_steps: int = 100,
@@ -480,7 +490,11 @@ def bench_series(
 def bench_frame(
     input: pd.DataFrame,
     p: int | None = None,
-    optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": False,
+    },
     tollarance: float = 1e-2,
     max_iter: int = 1,
     max_steps: int = 100,
@@ -518,7 +532,11 @@ def bench_frame(
 def bench_looping(
     input: pd.DataFrame,
     p: int | None = None,
-    optimizers: dict[str, bool] = {"tdvp": True, "scipy": True, "gradient_descent": False},
+    optimizers: dict[str, bool] = {
+        "tdvp": True,
+        "scipy": True,
+        "gradient_descent": False,
+    },
     tollarance: float = 1e-2,
     max_iter: int = 1,
     max_steps: int = 1000,
@@ -540,7 +558,7 @@ def bench_looping(
                     optimizers=optimizers,
                     tollarance=tollarance,
                     max_iter=max_iter,
-                    max_steps= max_steps,
+                    max_steps=max_steps,
                     auto_save=auto_save,
                     path=path,
                     print_msg=False,

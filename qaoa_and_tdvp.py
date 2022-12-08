@@ -44,7 +44,9 @@ class QAOA:
 
         self._H = hamiltonian
         self.H_ground = hamiltonian_ground
-        assert isinstance(qubo, (MaxCut, np.ndarray)), "qubo must be a MaxCut or ndarray"
+        assert isinstance(
+            qubo, (MaxCut, np.ndarray)
+        ), "qubo must be a MaxCut or ndarray"
         if isinstance(qubo, MaxCut):
             self._qubo = qubo.qubo
         else:
@@ -292,7 +294,9 @@ class QAOA:
         return self.circuit(delta).run(self.mixer_ground)
 
     def expectation(self, delta: tuple[float]) -> float:
-        assert len(delta) == 2 * self.p, f"length of delta should be 2*{self.p}={2*self.p}, but is {len(delta)}:\n{delta}"
+        assert (
+            len(delta) == 2 * self.p
+        ), f"length of delta should be 2*{self.p}={2*self.p}, but is {len(delta)}:\n{delta}"
         return expect(self.H, self.state(delta))
 
     # methods for tdvp metric and gradient
@@ -1036,7 +1040,9 @@ def gradient_descent(
 
     t_0 = time()
     delta = delta_0
-    path = list()
+    path = [
+        delta_0,
+    ]
     step = 0
     fun_calls = 0
     p = qaoa.p
@@ -1045,9 +1051,7 @@ def gradient_descent(
     while step < max_iter:
         print(f"step {step}", end="\r")
         grad = np.matrix(dH(delta))
-        fun_calls += (
-            2 * p * (2 * p + 1)
-        )  # 2p for each parameter component of the gradient, one for the qaoa state, that 2p times for each direction
+        fun_calls += 4 * p
         delta = tuple((delta - Delta * grad).tolist()[0])
         path.append(delta)
         step += 1
@@ -1137,7 +1141,7 @@ def tdvp_optimize_qaoa(
 
     def tdvp_terminal(t, x) -> float:
         if grad_tol == 0:
-            #then no need for running tdvp_rhs and num_fun_calls == rhs_step
+            # then no need for running tdvp_rhs and num_fun_calls == rhs_step
             return 1
         return (
             linalg.norm(tdvp_rhs(t, x)) - grad_tol
@@ -1145,12 +1149,13 @@ def tdvp_optimize_qaoa(
 
     tdvp_terminal.terminal = True  # this is needed for the scipy solver
     max_steps_reached = False
+
     def tdvp_max_steps(*args) -> float:
         nonlocal rhs_step
         x = float(max_steps - rhs_step)
-        if x<0:
+        if x < 0:
             print("max_steps reached")
-            max_steps_reached= True
+            max_steps_reached = True
         return x
 
     tdvp_max_steps.terminal = True
@@ -1199,9 +1204,7 @@ def tdvp_optimize_qaoa(
                 y0=delta,
                 method=int_mode,
                 # t_eval=eval_points,
-                events=[
-                    tdvp_terminal, tdvp_max_steps
-                ],
+                events=[tdvp_terminal, tdvp_max_steps],
             )
             nfev += int_result.nfev
             times.extend(int_result.t)
@@ -1245,5 +1248,6 @@ def tdvp_optimize_qaoa(
     # qaoa.reset_gate_counter()
 
     return result
+
 
 #%%
