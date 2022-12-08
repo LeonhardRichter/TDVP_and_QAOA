@@ -4,7 +4,7 @@ poetry.lock
 pyproject.toml
 .replit
 .idea
-plots/
+# plots/
 
 .p
 
