@@ -1136,6 +1136,9 @@ def tdvp_optimize_qaoa(
             return gen_tdvp_rhs(t, x, qaoa)
 
     def tdvp_terminal(t, x) -> float:
+        if grad_tol == 0:
+            #then no need for running tdvp_rhs and num_fun_calls == rhs_step
+            return 1
         return (
             linalg.norm(tdvp_rhs(t, x)) - grad_tol
         )  # stop if the norm of the rhs is smaller than grad_tol
