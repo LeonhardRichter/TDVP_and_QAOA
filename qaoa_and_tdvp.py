@@ -1,5 +1,13 @@
 # vscode-fold=2
 
+# ==========================================
+# Author: Leonhard Felix Richter
+# Date:   25 Jan 2023
+# ==========================================
+"""This module defines the QAOA class and functions for optimizing the QAOA parameters.
+The optimizers are based on the TDVP, the gradient descent and the scipy cobyla implementation
+"""
+
 # tested in python version 3.10.6
 
 from time import time
@@ -15,8 +23,6 @@ from scipy.optimize import minimize
 import numpy as np
 from numpy.typing import NDArray
 
-from MaxCut import MaxCut
-
 # qutip version 4.7.0 (Cython version 0.29.30)
 from qutip import expect, Qobj, tensor
 from qutip.parallel import parallel_map, serial_map
@@ -25,17 +31,26 @@ from qutip.parallel import parallel_map, serial_map
 from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.ipynbtools import parallel_map as ipy_parallel_map
 
+from MaxCut import MaxCut
+
+
 from quantum import minus, q_j, rzz, sx, H_from_qubo, cheat_gate, groundspace
 
 
 class QAOA:
+    """The QAOA class. In this class, all methods relevant to the QAOA are collected.
+    Objects of this class correspond to the QAOA algorithm for a given QUBO instance.
+    The main method is self.circuit, where the QAOA circuit is constructed with several options.
+    For evaluating the expectation value of the QAOA for given parameters, use self.expectation.
+    """
+
     # _num_gates = Value("i", 0)settsett
 
     def __init__(
         self,
         qubo: NDArray | MaxCut,
-        hamiltonian: Qobj = None,
-        hamiltonian_ground: Qobj = None,
+        hamiltonian: Qobj | None = None,
+        hamiltonian_ground: Qobj | None = None,
         p: int = 1,
         A_mode: str = "single",
         cheat: bool = True,
@@ -43,7 +58,7 @@ class QAOA:
     ) -> None:
 
         self._H = hamiltonian
-        self.H_ground = hamiltonian_ground
+        self.H_ground: Qobj | None = hamiltonian_ground
         assert isinstance(
             qubo, (MaxCut, np.ndarray)
         ), "qubo must be a MaxCut or ndarray"

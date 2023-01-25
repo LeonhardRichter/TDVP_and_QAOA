@@ -7,7 +7,7 @@ In this repository, the _TDVP_ and the _QAOA_ are implemented for simulations us
 
 The version of the code that is used in the thesis is found in XXXXXXX.
 
-The main methods are found in `TDVP_and_QAOA.py`. There, all classes and functions, that are vital for the various algorithms are defined.
+The main methods are found in `qaoa_and_tdvp.py`. There, all classes and functions, that are vital for the various algorithms are defined.
 `MaxCut.py` defines a class for instances of the [Maximum Cut problem](https://en.wikipedia.org/wiki/Maximum_cut).
 `quantum.py` defines some basic functions for convenience.
 `benchmark.py` defines among others the function `bench_series` that is used in `run_benchmarks.ipynb` for generating the results presented in the thesis.

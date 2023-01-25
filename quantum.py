@@ -1,10 +1,17 @@
+# ==========================================
+# Author: Leonhard Felix Richter
+# Date:   25 Jan 2023
+# ==========================================
+
+"""This module contains simple quantum related functions for convenience.
+"""
 from itertools import combinations
+from typing import List
+import math
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from typing import List
 from qutip import sigmaz, sigmax, basis, tensor, qeye, Qobj
 from qutip.qip.operations import expand_operator, rz
-import math
 from qutip import variance
 
 

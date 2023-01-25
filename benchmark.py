@@ -1,3 +1,22 @@
+# ==========================================
+# Author: Leonhard Felix Richter
+# Date:   25 Jan 2023
+# ==========================================
+"""
+This module defines functions calling the QAOA and TDVP algorithms for a given
+set of instances.
+"""
+
+
+from math import prod
+from typing import List, Dict, Any, Union
+from itertools import product
+import pickle
+import pandas as pd
+from scipy.linalg import LinAlgError
+import numpy as np
+import networkx as nx
+
 from qaoa_and_tdvp import (
     QAOAResult,
     tdvp_optimize_qaoa,
@@ -5,14 +24,6 @@ from qaoa_and_tdvp import (
     gradient_descent,
     QAOA,
 )
-from math import prod
-from typing import List, Dict, Any, Union
-import pandas as pd
-from itertools import product
-import pickle
-from scipy.linalg import LinAlgError
-import numpy as np
-import networkx as nx
 from MaxCut import MaxCut
 
 

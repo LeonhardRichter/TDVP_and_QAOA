@@ -1,3 +1,10 @@
+# ==========================================
+# Author: Leonhard Felix Richter
+# Date:   25 Jan 2023
+# ==========================================
+"""This module defines the MaxCut class allowing to generate the qubo matrix and
+the corresponding hamiltonian for a given graph.
+"""
 #%%
 import networkx as nx
 from numpy.typing import NDArray
@@ -19,7 +26,6 @@ class MaxCut:
         if draw:
             nx.draw(self.graph, with_labels=True)
 
-    
     # qubo
     @property
     def qubo(self) -> NDArray:
@@ -30,7 +36,7 @@ class MaxCut:
     def qubo(self, value: NDArray) -> None:
         self._qubo = value
 
-    def _get_qubo(self, graph: nx.Graph = None) -> NDArray:
+    def _get_qubo(self, graph: nx.Graph | None = None) -> NDArray:
         if graph is None:
             graph = self.graph
         n = graph.number_of_nodes()
