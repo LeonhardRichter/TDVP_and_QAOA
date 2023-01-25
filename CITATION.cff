@@ -2,6 +2,6 @@ cff-version: 1.2.0
 authors:
   - family-names: Richter
     given-names: Leonhard Felix
-title: "The Quantum Approximate Optimization Algorithm and the Time-Dependent Variational Principle"
+title: "The Quantum Approximate Optimization Algorithm and the Time-Dependent Variational Principle."
 version: 0.1.0-alpha
 date-released: 2023-01-25
